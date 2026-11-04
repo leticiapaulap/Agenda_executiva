@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editar compromisso' if editing else 'Novo compromisso' }}{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">COMPROMISSOS</p><h1>{{ 'Editar compromisso' if editing else 'Novo compromisso' }}</h1><p class="muted">Preencha os detalhes para organizar sua agenda.</p></div><a class="button secondary" href="{{ url_for('web.events') }}">← Voltar</a></div>
+<form method="post" class="panel form-panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-grid">
+    <label class="span-2">Título<input name="title" value="{{ event.title }}" maxlength="200" required autofocus></label>
+    <label>Data<input type="date" name="event_date" value="{{ event.event_date }}" required></label>
+    <label>Categoria<select name="category">{% for category in categories %}<option {{ 'selected' if event.category == category }}>{{ category }}</option>{% endfor %}</select></label>
+    <label>Início<input type="time" name="event_time" value="{{ event.event_time }}" required></label>
+    <label>Término<input type="time" name="end_time" value="{{ event.end_time }}"></label>
+    <label>Prioridade<select name="priority">{% for priority in priorities %}<option {{ 'selected' if event.priority == priority }}>{{ priority }}</option>{% endfor %}</select></label>
+    <label>Lembrete<select name="reminder_minutes">{% for label, minutes in reminders.items() %}<option value="{{ minutes }}" {{ 'selected' if event.reminder_minutes == (minutes|string) or event.reminder_minutes == minutes }}>{{ label }}</option>{% endfor %}</select></label>
+    <label class="span-2">Local<input name="location" value="{{ event.location }}" maxlength="200"></label>
+    <label class="span-2">Descrição<textarea name="description" rows="3" maxlength="5000">{{ event.description }}</textarea></label>
+    <label class="span-2">Observações<textarea name="notes" rows="3" maxlength="5000">{{ event.notes }}</textarea></label>
+  </div>
+  <div class="form-actions"><a class="button secondary" href="{{ url_for('web.events') }}">Cancelar</a><button class="button primary" type="submit">{{ 'Salvar alterações' if editing else 'Criar compromisso' }}</button></div>
+</form>
+{% endblock %}

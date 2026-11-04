@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10233f">
+  <title>{% block title %}Agenda Executiva{% endblock %} · Agenda Executiva</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body>
+  <button class="mobile-menu" type="button" aria-label="Abrir navegação" aria-expanded="false">☰</button>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="{{ url_for('web.dashboard') }}"><span class="brand-mark">A</span><span>Agenda<strong>Executiva</strong></span></a>
+    <div class="nav-caption">MENU PRINCIPAL</div>
+    <nav aria-label="Navegação principal">
+      <a class="{{ 'active' if request.endpoint == 'web.dashboard' }}" href="{{ url_for('web.dashboard') }}"><span>⌂</span> Painel inicial</a>
+      <a class="{{ 'active' if request.endpoint == 'web.calendar' }}" href="{{ url_for('web.calendar') }}"><span>▦</span> Calendário</a>
+      <a class="{{ 'active' if request.endpoint in ['web.events','web.new_event','web.edit_event'] }}" href="{{ url_for('web.events') }}"><span>▤</span> Compromissos</a>
+      <a class="{{ 'active' if request.endpoint == 'web.tasks' }}" href="{{ url_for('web.tasks') }}"><span>✓</span> Tarefas</a>
+      <a class="{{ 'active' if request.endpoint == 'web.reminders' }}" href="{{ url_for('web.reminders') }}"><span>◷</span> Lembretes</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <span class="user-avatar">G</span>
+      <span class="user-label"><small>ACESSO RESTRITO</small><strong>{{ config.ADMIN_USERNAME }}</strong></span>
+      <form method="post" action="{{ url_for('web.logout') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="icon-button" aria-label="Sair" title="Sair">↪</button>
+      </form>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <form class="global-search" action="{{ url_for('web.search') }}" method="get" role="search">
+        <span aria-hidden="true">⌕</span>
+        <input type="search" name="q" value="{{ request.args.get('q','') }}" placeholder="Pesquisar compromissos e tarefas..." aria-label="Pesquisar">
+      </form>
+      <a class="today-link" href="{{ url_for('web.calendar') }}">◷ <span>{{ today_label or '' }}</span></a>
+    </header>
+    <section class="page-content">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}<div class="flash-stack" aria-live="polite">
+          {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+        </div>{% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Calendário{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">PLANEJAMENTO</p><h1>Calendário</h1><p class="muted">Visualize e organize os compromissos do mês.</p></div><a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a></div>
+<section class="panel calendar-panel">
+  <div class="calendar-heading"><a class="calendar-arrow" href="{{ url_for('web.calendar', month=previous.isoformat()) }}" aria-label="Mês anterior">‹</a><h2>{{ month_name }} {{ month.year }}</h2><a class="calendar-arrow" href="{{ url_for('web.calendar', month=next_month.isoformat()) }}" aria-label="Próximo mês">›</a><a class="text-link" href="{{ url_for('web.calendar') }}">Hoje</a></div>
+  <div class="calendar-grid calendar-weekdays">{% for day in ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'] %}<div>{{ day }}</div>{% endfor %}</div>
+  <div class="calendar-grid calendar-days">
+  {% for week in weeks %}{% for day in week %}
+    {% if day %}
+      {% set key = '%04d-%02d-%02d'|format(month.year, month.month, day) %}
+      <article class="calendar-day {{ 'is-today' if key == today.isoformat() }}">
+        <span class="day-number">{{ day }}</span>
+        {% for event in events_by_day.get(key, [])[:3] %}<a class="calendar-event {{ event.priority|lower }}" href="{{ url_for('web.edit_event', event_id=event.id) }}"><time>{{ event.event_time }}</time> {{ event.title }}</a>{% endfor %}
+        {% if events_by_day.get(key, [])|length > 3 %}<a class="more-events" href="{{ url_for('web.events', date=key) }}">+ {{ events_by_day[key]|length - 3 }} mais</a>{% endif %}
+        <a class="day-add" href="{{ url_for('web.new_event') }}?date={{ key }}" aria-label="Adicionar em {{ key }}">＋</a>
+      </article>
+    {% else %}<div class="calendar-day outside"></div>{% endif %}
+  {% endfor %}{% endfor %}
+  </div>
+</section>
+{% endblock %}

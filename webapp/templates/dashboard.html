@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Painel inicial{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="eyebrow">VISÃO GERAL</p><h1>Bom dia</h1><p class="muted">{{ today.strftime('%d/%m/%Y') }} · Organize seu dia com clareza.</p></div>
+  <a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a>
+</div>
+<div class="stat-grid">
+  <article class="stat-card"><span class="stat-icon blue">▦</span><span class="stat-label">Hoje</span><strong>{{ counts.today }}</strong><small>compromissos</small></article>
+  <article class="stat-card"><span class="stat-icon amber">◷</span><span class="stat-label">Pendentes</span><strong>{{ counts.pending_events }}</strong><small>compromissos</small></article>
+  <article class="stat-card"><span class="stat-icon violet">✓</span><span class="stat-label">Tarefas</span><strong>{{ counts.pending_tasks }}</strong><small>em aberto</small></article>
+  <article class="stat-card"><span class="stat-icon red">↗</span><span class="stat-label">Urgentes</span><strong>{{ counts.urgent }}</strong><small>prioridade máxima</small></article>
+</div>
+<div class="content-grid">
+  <section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">AGENDA</p><h2>Próximos compromissos</h2></div><a class="text-link" href="{{ url_for('web.events') }}">Ver todos →</a></div>
+    {% if upcoming %}
+      <div class="record-list">{% for event in upcoming %}
+        <article class="record">
+          <div class="date-tile"><strong>{{ event.event_date[8:10] }}</strong><small>{{ event.event_date[5:7] }}/{{ event.event_date[:4] }}</small></div>
+          <div class="record-main"><a class="record-title" href="{{ url_for('web.edit_event', event_id=event.id) }}">{{ event.title }}</a><span>{{ event.event_time }}{% if event.end_time %}–{{ event.end_time }}{% endif %} · {{ event.category }}</span></div>
+          <span class="priority {{ event.priority|lower }}">{{ event.priority }}</span>
+        </article>
+      {% endfor %}</div>
+    {% else %}<div class="empty-state"><span>▦</span><strong>Sua agenda está livre</strong><p>Adicione um compromisso para começar.</p></div>{% endif %}
+  </section>
+  <section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">ORGANIZAÇÃO</p><h2>Tarefas pendentes</h2></div><a class="text-link" href="{{ url_for('web.tasks') }}">Ver todas →</a></div>
+    {% if tasks %}<div class="record-list">{% for task in tasks %}
+      <article class="task-row"><form method="post" action="{{ url_for('web.toggle_task', task_id=task.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="check-button" aria-label="Concluir {{ task.title }}">○</button></form>
+        <div class="record-main"><a class="record-title" href="{{ url_for('web.tasks', edit=task.id) }}">{{ task.title }}</a><span>{{ task.due_date|replace('-', '/') if task.due_date else 'Sem prazo' }}</span></div>
+        <span class="priority {{ task.priority|lower }}">{{ task.priority }}</span>
+      </article>
+    {% endfor %}</div>{% else %}<div class="empty-state"><span>✓</span><strong>Nenhuma tarefa pendente</strong><p>Um bom momento para planejar.</p></div>{% endif %}
+  </section>
+</div>
+{% endblock %}

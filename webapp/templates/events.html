@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Compromissos{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">SUA AGENDA</p><h1>Compromissos</h1><p class="muted">Acompanhe e gerencie seus compromissos.</p></div><a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a></div>
+<form class="filter-bar panel" method="get">
+  {% if selected_date %}<input type="hidden" name="date" value="{{ selected_date }}">{% endif %}
+  <label class="filter-search">Pesquisar<input type="search" name="q" value="{{ query }}" placeholder="Título, local, descrição..."></label>
+  <label>Situação<select name="status"><option>Todos</option><option {{ 'selected' if status == 'Pendentes' }}>Pendentes</option><option {{ 'selected' if status == 'Concluídos' }}>Concluídos</option></select></label>
+  <label>Prioridade<select name="priority"><option>Todas</option>{% for item in priorities %}<option {{ 'selected' if priority == item }}>{{ item }}</option>{% endfor %}</select></label>
+  <button class="button secondary" type="submit">Filtrar</button>
+</form>
+<section class="panel table-panel">
+  {% if events %}
+  <div class="table-wrap"><table><thead><tr><th>Compromisso</th><th>Data e horário</th><th>Categoria</th><th>Prioridade</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
+  {% for event in events %}<tr>
+    <td><strong>{{ event.title }}</strong><small>{{ event.location or event.description or 'Sem detalhes adicionais' }}</small></td>
+    <td>{{ event.event_date[8:10] }}/{{ event.event_date[5:7] }}/{{ event.event_date[:4] }}<small>{{ event.event_time }}{% if event.end_time %}–{{ event.end_time }}{% endif %}</small></td>
+    <td>{{ event.category }}</td><td><span class="priority {{ event.priority|lower }}">{{ event.priority }}</span></td>
+    <td><span class="status {{ 'done' if event.completed else '' }}">{{ 'Concluído' if event.completed else 'Pendente' }}</span></td>
+    <td><div class="actions">
+      <a class="small-action" href="{{ url_for('web.edit_event', event_id=event.id) }}">Editar</a>
+      <form method="post" action="{{ url_for('web.toggle_event', event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit">{{ 'Reabrir' if event.completed else 'Concluir' }}</button></form>
+      <form method="post" action="{{ url_for('web.duplicate_event', event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit">Duplicar</button></form>
+      <details class="reschedule"><summary class="small-action">Reagendar</summary><form method="post" action="{{ url_for('web.reschedule_event', event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Data<input type="date" name="event_date" value="{{ event.event_date }}" required></label><label>Início<input type="time" name="event_time" value="{{ event.event_time }}" required></label><label>Término<input type="time" name="end_time" value="{{ event.end_time }}"></label><button class="button primary" type="submit">Salvar</button></form></details>
+      <form method="post" action="{{ url_for('web.delete_event', event_id=event.id) }}" data-confirm="Deseja realmente excluir o compromisso {{ event.title }}?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action danger-text" type="submit">Excluir</button></form>
+    </div></td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="empty-state"><span>⌕</span><strong>Nenhum compromisso encontrado</strong><p>Ajuste a pesquisa ou crie um novo compromisso.</p></div>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10233f">
+  <title>Acesso · Agenda Executiva</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <a class="brand login-brand" href="{{ url_for('web.login') }}"><span class="brand-mark">A</span><span>Agenda<strong>Executiva</strong></span></a>
+    <p class="eyebrow">ÁREA RESTRITA</p>
+    <h1>Acesse sua agenda</h1>
+    <p class="muted">Entre com a conta autorizada pelo gestor.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+    {% endwith %}
+    <form method="post" class="form-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Usuário<input name="username" autocomplete="username" required autofocus maxlength="100"></label>
+      <label>Senha<input type="password" name="password" autocomplete="current-password" required></label>
+      <button class="button primary full" type="submit">Entrar com segurança</button>
+    </form>
+    <p class="login-foot">Acesso protegido · Agenda Executiva</p>
+  </main>
+</body>
+</html>
