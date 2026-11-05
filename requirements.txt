@@ -1,5 +1,7 @@
 customtkinter==5.2.2
 Pillow==13.0.0
+# Pillow validates and re-encodes private PNG/JPEG receipts.
+cryptography==50.0.2
 Flask==3.1.1
 Flask-Login==0.6.3
 Flask-WTF==1.2.2

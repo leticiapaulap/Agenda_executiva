@@ -10,6 +10,8 @@ from sqlalchemy import delete, func, select
 from werkzeug.security import check_password_hash
 
 from agenda.services import AgendaService, CATEGORIES, MONTHS, PRIORITIES, REMINDERS
+from agenda.finance import FinanceService
+from .finance_repository import WebFinanceRepository
 from . import Manager
 from .models import Event, LoginAttempt, Task, db
 from .repository import PostgresRepository
@@ -270,6 +272,8 @@ def calendar():
     try:
         month = date.fromisoformat(request.args.get('month', date.today().replace(day=1).isoformat()))
         month = month.replace(day=1)
+        if not 1900 <= month.year <= 2199:
+            abort(400)
     except ValueError:
         abort(400)
     first = month
@@ -277,12 +281,20 @@ def calendar():
     events_by_day = {}
     for event in PostgresRepository().list_events(start=first.isoformat(), end=last.isoformat()):
         events_by_day.setdefault(event['event_date'], []).append(event)
+    bills_by_day = {}
+    try:
+        calendar_bills = FinanceService(WebFinanceRepository()).calendar_items(first, last)
+    except ValueError:
+        abort(400)
+    for bill in calendar_bills:
+        bills_by_day.setdefault(bill['due_date'], []).append(bill)
     weeks = Calendar(firstweekday=0).monthdayscalendar(month.year, month.month)
     previous = (month - timedelta(days=1)).replace(day=1)
     next_month = (last + timedelta(days=1)).replace(day=1)
     return render_template('calendar.html', month=month, month_name=MONTHS[month.month - 1],
                            weeks=weeks,
                            events_by_day=events_by_day, today=date.today(),
+                           bills_by_day=bills_by_day,
                            previous=previous, next_month=next_month)
 
 
@@ -353,7 +365,9 @@ def reminders():
     upcoming = PostgresRepository().list_events(start=today.isoformat(), status='Pendentes')
     pending_tasks = PostgresRepository().list_tasks(status='Pendentes')
     tasks_due = [task for task in pending_tasks if task['due_date'] and task['due_date'] <= today.isoformat()]
-    return render_template('reminders.html', events=upcoming, tasks=tasks_due, today=today)
+    bill_reminders = FinanceService(WebFinanceRepository()).reminders(today)
+    return render_template('reminders.html', events=upcoming, tasks=tasks_due, today=today,
+                           bill_reminders=bill_reminders)
 
 
 @bp.get('/search')

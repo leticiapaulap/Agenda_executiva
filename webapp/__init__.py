@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from datetime import date, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
@@ -55,9 +56,19 @@ def create_app(test_config=None):
         WTF_CSRF_TIME_LIMIT=3600,
         ADMIN_USERNAME=os.environ.get('ADMIN_USERNAME', ''),
         ADMIN_PASSWORD_HASH=os.environ.get('ADMIN_PASSWORD_HASH', ''),
+        VAULT_ENABLED=os.environ.get('VAULT_ENABLED', 'false'),
+        VAULT_KEYS=os.environ.get('VAULT_KEYS', ''),
+        VAULT_ACTIVE_KEY_ID=os.environ.get('VAULT_ACTIVE_KEY_ID', ''),
         PREFERRED_URL_SCHEME='https',
+        RECEIPT_STORAGE_DIR=os.environ.get('RECEIPT_STORAGE_DIR') or None,
+        MAX_CONTENT_LENGTH=6 * 1024 * 1024,
+        SQLALCHEMY_ENGINE_OPTIONS={'hide_parameters': True},
     )
     app.config.update(test_config)
+    if app.config.get('RECEIPT_STORAGE_DIR'):
+        receipt_root = Path(app.config['RECEIPT_STORAGE_DIR']).expanduser()
+        if not receipt_root.is_absolute() or receipt_root.resolve().is_relative_to(Path(app.root_path).resolve()):
+            raise RuntimeError('RECEIPT_STORAGE_DIR deve ser absoluto e ficar fora da pasta webapp.')
     if not app.config.get('TESTING') and not app.config['SQLALCHEMY_DATABASE_URI'].startswith(
             ('postgresql://', 'postgresql+psycopg://')):
         raise RuntimeError('SQLite não é aceito como armazenamento persistente da aplicação web.')
@@ -113,4 +124,10 @@ def create_app(test_config=None):
 
     from .routes import bp
     app.register_blueprint(bp)
+    from .catalog import bp as catalog_bp
+    app.register_blueprint(catalog_bp)
+    from .vault_commands import register_commands
+    register_commands(app)
+    from .finance_routes import bp as finance_bp
+    app.register_blueprint(finance_bp)
     return app

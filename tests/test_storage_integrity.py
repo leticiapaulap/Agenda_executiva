@@ -97,6 +97,16 @@ class StorageIntegrityTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_incomplete_catalog_and_finance_schemas_rejected_before_changes(self):
+        for table in ('access_catalog', 'bill_series', 'bills', 'bill_payments', 'bill_reminder_log'):
+            with self.subTest(table=table):
+                source = self.modified_backup(f'DROP TABLE {table}; CREATE TABLE {table}(id TEXT PRIMARY KEY);')
+                self.assert_rejected_without_changes(source)
+
+    def test_updated_schema_cannot_silently_lose_catalog(self):
+        source = self.modified_backup('DROP TABLE access_catalog;')
+        self.assert_rejected_without_changes(source)
+
 
 if __name__ == '__main__':
     unittest.main()

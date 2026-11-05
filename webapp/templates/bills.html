@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Contas e Vencimentos{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">ORGANIZAÇÃO FINANCEIRA</p><h1>Contas e Vencimentos</h1><p class="muted">Acompanhe pagamentos, prazos e recorrências mensais.</p></div><a class="button primary" href="{{ url_for('finance.new_bill') }}">＋ Nova conta</a></div>
+<div class="stat-grid">
+  <article class="stat-card"><span class="stat-icon amber">◷</span><span class="stat-label">Total a pagar</span><strong>R$ {{ totals.to_pay|replace('.', ',') }}</strong></article>
+  <article class="stat-card"><span class="stat-icon blue">✓</span><span class="stat-label">Total pago</span><strong>R$ {{ totals.paid|replace('.', ',') }}</strong></article>
+  <article class="stat-card"><span class="stat-icon red">!</span><span class="stat-label">Total vencido</span><strong>R$ {{ totals.overdue|replace('.', ',') }}</strong></article>
+</div>
+<form method="get" class="panel filter-bar finance-filters">
+  <label>Mês<input type="month" name="month" value="{{ filters.month }}" required></label>
+  <label>Status<select name="status"><option value="">Todos</option>{% for status in ['Pendente','Paga','Vencida'] %}<option value="{{ status }}" {{ 'selected' if filters.status == status }}>{{ status }}</option>{% endfor %}</select></label>
+  <label>Categoria<input name="category" value="{{ filters.category }}" maxlength="80" placeholder="Todas"></label>
+  <label>Vencimento inicial<input type="date" name="due_start" value="{{ filters.due_start }}"></label>
+  <label>Vencimento final<input type="date" name="due_end" value="{{ filters.due_end }}"></label>
+  <button class="button secondary">Filtrar</button>
+</form>
+<p class="muted">Totais correspondem ao filtro atual. O total a pagar inclui contas vencidas. <a class="text-link" href="{{ url_for('finance.history') }}">Ver histórico de pagamentos</a></p>
+<section class="panel table-panel"><div class="table-wrap"><table>
+<thead><tr><th>Conta</th><th>Categoria</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Responsável</th><th>Ações</th></tr></thead>
+<tbody>{% for bill in bills %}<tr>
+  <td><strong>{{ bill.title }}</strong><small>{{ bill.recurrence }}</small></td><td>{{ bill.category or 'Sem categoria' }}</td>
+  <td>R$ {{ bill.amount|replace('.', ',') }}</td><td>{{ bill.due_date[8:10] }}/{{ bill.due_date[5:7] }}/{{ bill.due_date[:4] }}{% if bill.near_due %}<small class="danger-text">Vencimento próximo</small>{% endif %}</td>
+  <td><span class="status {{ 'done' if bill.status == 'Paga' }}">{{ bill.status }}</span></td><td>{{ bill.responsible or '—' }}</td>
+  <td><div class="actions"><a class="small-action" href="{{ url_for('finance.edit_bill', bill_id=bill.id) }}">{{ 'Detalhes' if bill.status == 'Paga' else 'Editar / pagar' }}</a>{% if bill.receipt_id %}<a class="small-action" href="{{ url_for('finance.receipt', bill_id=bill.id) }}">Comprovante</a>{% endif %}
+  <form method="post" action="{{ url_for('finance.delete_bill', bill_id=bill.id) }}" data-confirm="Excluir esta conta? Se mensal, os próximos vencimentos serão interrompidos. O histórico de pagamentos será preservado."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action danger-text">Excluir</button></form></div></td>
+</tr>{% else %}<tr><td colspan="7"><div class="empty-state"><strong>Nenhuma conta para os filtros selecionados</strong><p>Cadastre uma conta para organizar seus vencimentos.</p></div></td></tr>{% endfor %}</tbody>
+</table></div></section>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editar conta' if editing else 'Nova conta' }}{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">CONTAS E VENCIMENTOS</p><h1>{{ 'Detalhes da conta' if editing else 'Nova conta' }}</h1><p class="muted">Os lembretes aparecem com 7, 3 e 1 dia de antecedência.</p></div><a class="button secondary" href="{{ url_for('finance.bills') }}">← Voltar</a></div>
+{% if bill.status != 'Paga' %}
+<form method="post" enctype="multipart/form-data" class="panel form-panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-grid">
+    <label class="span-2">Nome da conta<input name="title" value="{{ bill.title }}" maxlength="200" required autofocus></label>
+    <label>Categoria<input name="category" value="{{ bill.category }}" maxlength="80"></label>
+    <label>Valor em reais<input name="amount" inputmode="decimal" value="{{ bill.amount }}" placeholder="123,45" required></label>
+    <label>Data de vencimento<input type="date" name="due_date" value="{{ bill.due_date }}" required></label>
+    <label>Responsável<input name="responsible" value="{{ bill.responsible }}" maxlength="200"></label>
+    <label>Recorrência<select name="recurrence">{% for item in ['Única','Mensal'] %}<option {{ 'selected' if bill.recurrence == item }}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Status<input value="{{ bill.status or 'Pendente' }}" readonly aria-readonly="true"></label>
+    <label class="span-2">Observações<textarea name="notes" rows="4" maxlength="5000">{{ bill.notes }}</textarea></label>
+    {% if uploads_enabled %}<label class="span-2">Comprovante opcional (JPEG ou PNG, até 5 MB)<input type="file" name="receipt" accept="image/jpeg,image/png"></label>{% else %}<p class="muted span-2">O administrador precisa configurar o armazenamento privado antes de anexar comprovantes.</p>{% endif %}
+  </div>
+  {% if bill.receipt_id %}<p><a class="text-link" href="{{ url_for('finance.receipt', bill_id=bill.id) }}">Baixar comprovante atual</a></p>{% endif %}
+  <p class="muted">Mensal: mantém o dia original; em meses mais curtos usa o último dia. Alterações se aplicam a esta ocorrência e às futuras ainda pendentes da série. Pagamentos anteriores permanecem no histórico.</p>
+  <div class="form-actions"><a class="button secondary" href="{{ url_for('finance.bills') }}">Cancelar</a><button class="button primary">Salvar conta</button></div>
+</form>
+{% else %}
+<section class="panel form-panel"><h2>{{ bill.title }}</h2><p>R$ {{ bill.amount|replace('.', ',') }} · {{ bill.status }} · Pagamento: {{ bill.paid_on }}</p><p class="muted">Vencimento: {{ bill.due_date }} · {{ bill.category }} · {{ bill.responsible }}</p><p>{{ bill.notes }}</p><p class="muted">O registro pago é preservado. Para um novo lançamento, cadastre outra conta.</p>{% if bill.receipt_id %}<a class="text-link" href="{{ url_for('finance.receipt', bill_id=bill.id) }}">Baixar comprovante</a>{% endif %}
+{% if uploads_enabled %}<form method="post" action="{{ url_for('finance.attach_receipt', bill_id=bill.id) }}" enctype="multipart/form-data" class="form-stack"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Comprovante (JPEG ou PNG, até 5 MB)<input type="file" name="receipt" accept="image/jpeg,image/png" required></label><button class="button secondary">Salvar comprovante</button></form>{% endif %}</section>
+{% endif %}
+{% if editing and bill.status != 'Paga' %}<section class="panel form-panel"><h2>Registrar pagamento</h2><form method="post" action="{{ url_for('finance.pay_bill', bill_id=bill.id) }}" class="form-stack"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Data de pagamento<input type="date" name="paid_on" value="{{ today }}" max="{{ today }}" required></label><button class="button primary">Marcar como paga</button></form></section>{% endif %}
+{% if payments %}<section class="panel form-panel"><h2>Histórico desta conta</h2>{% for payment in payments %}<p class="muted">{{ payment.paid_on }} · R$ {{ payment.amount|replace('.', ',') }} · {{ payment.title }}</p>{% endfor %}</section>{% endif %}
+{% endblock %}

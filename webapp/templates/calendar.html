@@ -13,6 +13,8 @@
         <span class="day-number">{{ day }}</span>
         {% for event in events_by_day.get(key, [])[:3] %}<a class="calendar-event {{ event.priority|lower }}" href="{{ url_for('web.edit_event', event_id=event.id) }}"><time>{{ event.event_time }}</time> {{ event.title }}</a>{% endfor %}
         {% if events_by_day.get(key, [])|length > 3 %}<a class="more-events" href="{{ url_for('web.events', date=key) }}">+ {{ events_by_day[key]|length - 3 }} mais</a>{% endif %}
+        {% for bill in bills_by_day.get(key, [])[:2] %}<a class="calendar-event {{ 'alta' if bill.status == 'Vencida' else 'baixa' if bill.status == 'Paga' }}" href="{{ url_for('finance.edit_bill', bill_id=bill.id) }}">R$ {{ bill.amount|replace('.', ',') }} · {{ bill.title }}</a>{% endfor %}
+        {% if bills_by_day.get(key, [])|length > 2 %}<a class="more-events" href="{{ url_for('finance.bills', month=key[:7], due_start=key, due_end=key) }}">+ {{ bills_by_day[key]|length - 2 }} contas</a>{% endif %}
         <a class="day-add" href="{{ url_for('web.new_event') }}?date={{ key }}" aria-label="Adicionar em {{ key }}">＋</a>
       </article>
     {% else %}<div class="calendar-day outside"></div>{% endif %}

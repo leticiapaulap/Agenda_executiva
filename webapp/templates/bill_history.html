@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Histórico de pagamentos{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">CONTAS E VENCIMENTOS</p><h1>Histórico de pagamentos</h1><p class="muted">Pagamentos preservados, inclusive de contas excluídas.</p></div><a class="button secondary" href="{{ url_for('finance.bills') }}">← Voltar</a></div>
+<section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Conta</th><th>Valor pago</th><th>Vencimento</th><th>Pagamento</th></tr></thead><tbody>{% for payment in payments %}<tr><td>{{ payment.title }}</td><td>R$ {{ payment.amount|replace('.', ',') }}</td><td>{{ payment.due_date }}</td><td>{{ payment.paid_on }}</td></tr>{% else %}<tr><td colspan="4"><div class="empty-state"><strong>Nenhum pagamento registrado</strong></div></td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

@@ -19,6 +19,8 @@
       <a class="{{ 'active' if request.endpoint in ['web.events','web.new_event','web.edit_event'] }}" href="{{ url_for('web.events') }}"><span>▤</span> Compromissos</a>
       <a class="{{ 'active' if request.endpoint == 'web.tasks' }}" href="{{ url_for('web.tasks') }}"><span>✓</span> Tarefas</a>
       <a class="{{ 'active' if request.endpoint == 'web.reminders' }}" href="{{ url_for('web.reminders') }}"><span>◷</span> Lembretes</a>
+      <a class="{{ 'active' if request.blueprint == 'catalog' }}" href="{{ url_for('catalog.entries') }}"><span>⚿</span> Cofre de Senhas</a>
+      <a class="{{ 'active' if request.blueprint == 'finance' }}" href="{{ url_for('finance.bills') }}"><span>＄</span> Contas e Vencimentos</a>
     </nav>
     <div class="sidebar-bottom">
       <span class="user-avatar">G</span>

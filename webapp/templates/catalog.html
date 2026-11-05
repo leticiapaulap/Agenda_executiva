@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Cofre de Senhas{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">ACESSOS</p><h1>Cofre de Senhas</h1><p class="muted">Acessos organizados · senhas pessoais protegidas quando o cofre estiver habilitado</p></div></div>
+<div class="flash info">{{ notice }}</div>
+<p class="muted">Acessos corporativos permanecem somente no catálogo. Não inclua credenciais nas observações ou na URL.</p>
+<div class="content-grid">
+  <section class="panel">
+    <form class="filter-bar" method="get"><label class="filter-search">Nome ou categoria<input type="search" name="q" value="{{ request.args.get('q','') }}" maxlength="200"></label><button class="button secondary">Pesquisar</button></form>
+    <div class="record-list">{% for access in entries %}
+      <article class="record"><div class="record-main"><strong class="record-title">{{ access.name }}</strong><span>{{ access.category }} · Atualizado em {{ access.updated_at[:10] }}</span>
+        {% if access.url %}<a class="text-link catalog-url" href="{{ access.url }}" target="_blank" rel="noopener noreferrer">Abrir sistema ↗</a>{% endif %}
+        <p class="muted catalog-notes">{{ access.notes }}</p></div>
+        <div class="vault-secret" data-vault-record>
+          <span class="muted">Senha</span><span class="vault-masked" data-vault-value>{{ '••••••••' if access.has_password else 'Não cadastrada' }}</span>
+          {% if access.has_password %}<div class="actions">
+            <button class="small-action" type="button" data-vault-action="reveal" data-secret-url="{{ url_for('catalog.secret', entry_id=access.id) }}" aria-label="Visualizar senha" title="Visualizar/ocultar senha" {{ 'disabled' if not vault_available }}>👁</button>
+            <button class="small-action" type="button" data-vault-action="copy" data-secret-url="{{ url_for('catalog.secret', entry_id=access.id) }}" {{ 'disabled' if not vault_available }}>Copiar senha</button>
+          </div>{% endif %}
+        </div>
+        <div class="actions"><a class="small-action" href="{{ url_for('catalog.entries', edit=access.id) }}">Editar</a><form method="post" action="{{ url_for('catalog.delete_entry', entry_id=access.id) }}" data-confirm="Excluir este acesso do catálogo?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action danger-text">Excluir</button></form></div>
+      </article>{% else %}<div class="empty-state"><strong>Nenhum acesso encontrado</strong></div>{% endfor %}</div>
+  </section>
+  <section class="panel task-editor"><div class="panel-heading"><h2>{{ 'Editar acesso' if entry.id else 'Novo acesso' }}</h2></div>
+    <form class="form-stack" method="post" action="{{ url_for('catalog.entries') }}" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="entry_id" value="{{ entry.id or '' }}">
+      <label>Sistema ou serviço<input name="name" maxlength="200" value="{{ entry.name or '' }}" required></label>
+      <label>URL (sem credenciais ou parâmetros)<input type="url" name="url" maxlength="1000" value="{{ entry.url or '' }}"></label>
+      <label>Categoria<input name="category" maxlength="80" value="{{ entry.category or '' }}" list="catalog-categories"></label>
+      <datalist id="catalog-categories">{% for category in entries|map(attribute='category')|unique %}<option value="{{ category }}">{% endfor %}</datalist>
+      <label>Observações não sensíveis<textarea name="notes" rows="3" maxlength="2000">{{ entry.notes or '' }}</textarea></label>
+      <label>Tipo de acesso<select name="is_corporate"><option value="1" {{ 'selected' if not entry or entry.is_corporate }}>Corporativo / somente catálogo</option><option value="0" {{ 'selected' if entry and not entry.is_corporate }}>Pessoal · armazenamento autorizado</option></select></label>
+      <label>{{ 'Nova senha (opcional; em branco mantém a atual)' if entry.has_password else 'Senha (opcional, somente acesso pessoal)' }}<input type="password" name="password" autocomplete="new-password" maxlength="4096" {{ 'disabled' if not vault_available }}></label>
+      {% if entry.has_password %}<label class="vault-checkbox"><input type="checkbox" name="clear_password" value="1" {{ 'disabled' if not vault_available }}>Remover explicitamente a senha armazenada</label>{% endif %}
+      {% if vault_available %}<label>Senha do gestor (ao definir ou remover senha)<input type="password" name="reauth_password" autocomplete="current-password" maxlength="1024"></label>{% endif %}
+      <button class="button primary">Salvar acesso</button>{% if entry.id %}<a class="button secondary" href="{{ url_for('catalog.entries') }}">Cancelar</a>{% endif %}
+    </form>
+  </section>
+</div>
+<p class="muted" id="vault-feedback" aria-live="polite"></p>
+<dialog class="vault-dialog" id="vault-auth" data-csrf="{{ csrf_token() }}">
+  <form id="vault-auth-form" class="form-stack" autocomplete="off">
+    <h2>Confirmar identidade</h2><p class="muted">Informe a senha do gestor para esta operação. A visualização é ocultada após 30 segundos.</p>
+    <label>Senha do gestor<input id="vault-reauth-password" type="password" autocomplete="current-password" maxlength="1024" required></label>
+    <p class="muted" id="vault-auth-error" role="alert"></p>
+    <div class="form-actions"><button class="button secondary" type="button" id="vault-auth-cancel">Cancelar</button><button class="button primary" type="submit">Confirmar</button></div>
+  </form>
+</dialog>
+<script defer src="{{ url_for('static', filename='vault.js') }}"></script>
+{% endblock %}

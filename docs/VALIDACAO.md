@@ -2,6 +2,38 @@
 
 Ambiente: Windows, Python 3.14.10, CustomTkinter 5.2.2, Pillow 13.0.0 e PyInstaller 6.22.3.
 
+## Aprimoramento do cofre com senhas — 05/11/2026
+
+- **114 testes automatizados aprovados** com `.venv\Scripts\python.exe -m unittest discover -s tests`. São 24 testes específicos em `test_vault.py`, 4 da ferramenta desktop em `test_vault_admin.py` e 86 testes de regressão. Todos usam bancos temporários e chaves próprias de teste.
+- AES-256-GCM validado efetivamente: ida/volta autorizada, nonce aleatório, texto Unicode e espaços preservados, adulteração recusada, ciphertext vinculado ao registro e à versão da chave, chave ausente/incorreta e configuração inválida sem exposição. Nunca é usado `SECRET_KEY` como substituto.
+- CRUD de senhas: cadastro opcional, atualização, edição com campo vazio preservando ciphertext, remoção explícita, exclusão do acesso e persistência após reiniciar. Listagem e HTML inicial sem senha ou ciphertext; registro corporativo bloqueado no serviço e pelo banco.
+- Web: autenticação, sessão recente, CSRF, reautenticação por operação, cinco falhas com bloqueio persistente de 15 minutos, ausência de eco de segredos em erros e proteção contra remoção via representação alternativa `clear_password=true`.
+- Migração `0004_vault_passwords` testada sobre catálogo web `0003` e SQLite local esquema 3, preservando IDs/campos antigos e gerando backup no desktop antes de passar ao esquema 4. SQL PostgreSQL compilado offline; `db check` sem diferenças de esquema.
+- Rotação web e desktop testadas: validação sem gravar, aplicação com chave nova, preservação de metadados, backup desktop e rollback integral quando um registro falha. Perda de chave nunca apaga automaticamente o ciphertext.
+- `tests.smoke_vault` e `tests.smoke_features` aprovados com widgets CustomTkinter reais: campo mascarado, autenticação local incorreta/correta, substituição/preservação da senha, olho/cópia, conteúdo alheio preservado no clipboard e catálogo sem hash/chaves.
+- `tests.smoke_vault_web` aprovado em **Microsoft Edge headless**, com servidor Flask localhost e SQLite temporário: cadastro/edição, HTML inicial sem texto puro, olho e modal de reautenticação, cópia pela API real do clipboard, máscara e limpeza condicional aos 30 segundos (relógio simulado), preservação de conteúdo posterior no clipboard, modo indisponível e largura de 390 px sem transbordamento. Nenhum erro JavaScript.
+- Dependência `cryptography==50.0.2` instalada; Playwright é apenas dependência opcional de testes. Não foram consultados segredos reais, bancos pessoais ou Render. Nenhuma chave foi gerada para produção, nenhum push/deploy foi feito e o executável desktop não foi reconstruído.
+- Limites: PostgreSQL real e concorrência com múltiplos workers ainda precisam de homologação; não há auditoria externa nem suporte a senhas corporativas. O teste de clipboard não certifica políticas de todos os navegadores/sistemas. Configuração, custódia e recuperação das chaves estão em [COFRE.md](COFRE.md).
+
+As seções abaixo são registros históricos anteriores ao aprimoramento do cofre, incluindo o modo catálogo então disponível. As restrições e contagens antigas não descrevem a implementação atual.
+
+## Atualização anterior de catálogo e contas — 05/11/2026
+
+- **86 testes automatizados aprovados** com `.venv\Scripts\python.exe -m unittest discover -s tests`, usando somente bancos temporários. Incluem CRUD, centavos/Decimal, filtros/totais, vencimentos 29/30/31 e bissextos, recorrência sem duplicação, pagamentos idempotentes, histórico após exclusão, persistência, calendário, lembretes 7/3/1 e regressões dos módulos anteriores.
+- As revisões `0002_finance` e `0003_access_catalog` foram aplicadas a um banco temporário que já estava na revisão `0001_create_agenda_tables`, contendo compromisso fictício. Todas as colunas do registro permaneceram idênticas. `flask db check` não detectou diferenças entre o esquema migrado e os modelos.
+- SQL das migrações compilado para o dialeto PostgreSQL em modo offline, sem conexão com servidor. A execução transacional e a concorrência em PostgreSQL real **não foram validadas**; ainda é necessária homologação no Render.
+- Segurança do catálogo: login, CSRF, escape HTML, `no-store`, recusa de campos de credenciais e URLs com credenciais/parâmetros, ausência de rotas de revelação/cópia, rejeição sem eco de segredo submetido, persistência após nova instância Flask.
+- **Criptografia/descriptografia e autenticação adicional não implementadas nem certificadas.** O cofre permanece em modo catálogo sem usuários/e-mails/senhas. Os requisitos para ativação, rotação e recuperação estão em [ACESSOS_E_CONTAS.md](ACESSOS_E_CONTAS.md).
+- Comprovantes: PNG/JPEG validados e regravados, limites de tamanho, nomes opacos, rejeição de conteúdo inválido/extensão divergente/caminhos arbitrários, download autenticado, configuração fora da pasta web e limpeza em falha de banco. Injeção de uma falha de banco verificou que o detalhe não aparece em respostas ou logs.
+- Validação de backups ampliada para os esquemas novos, vínculos e unicidade. Bancos incompatíveis ou incompletos são recusados antes da substituição dos dados atuais.
+- `tests.smoke_features` aprovado em sessão gráfica Windows, com SQLite temporário: navegação, catálogo, formulários de contas, edição, recorrência, pagamento, histórico, recibo privado, calendário, alerta persistido sem repetição e ajuste horizontal em 1000×650.
+- `tests.smoke_actions` aprovado para regressão gráfica dos compromissos, filtros, atalhos, persistência e escala 110%. Nenhuma captura anterior foi substituída nesta atualização.
+- Compilação sintática (`compileall`) e dependências (`pip check`) aprovadas. Esta atualização não reconstruiu o executável; para distribuir a versão desktop nova, execute o build do README.
+- Revisão da responsividade web baseada nos templates e CSS existentes: filtros adaptados e tabelas com rolagem horizontal. Não houve certificação visual em navegador nem auditoria externa de segurança.
+- Nenhum banco pessoal, variável de produção ou serviço Render foi acessado/modificado. Nenhum push ou deploy foi realizado.
+
+As seções abaixo são registros históricos de versões anteriores, inclusive os testes de esquema SQLite versão 2 e do executável então gerado. Não representam intervenções desta atualização no banco pessoal.
+
 ## Resultados registrados
 
 - Geração de `assets/app.png` e `assets/app.ico`: concluída; PNG inspecionado visualmente.

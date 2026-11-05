@@ -14,7 +14,7 @@ import tempfile
 
 APP_DIR = Path.home() / 'AgendaExecutiva'
 DB_PATH = APP_DIR / 'agenda.db'
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 EVENT_COLUMNS = (
     'title', 'event_date', 'event_time', 'category', 'location', 'notes',
     'reminder_minutes', 'completed', 'description', 'end_time', 'priority',
@@ -66,11 +66,27 @@ class Database:
             'tasks': {'id', 'title', 'description', 'due_date', 'priority', 'completed'},
             'settings': {'key', 'value'},
             'reminder_log': {'event_id', 'event_date', 'event_time', 'reminder_minutes', 'notified_at'},
+            'access_catalog': {'id', 'name', 'url', 'category', 'notes', 'updated_at'},
+            'bill_series': {'id', 'title', 'category', 'amount_cents', 'responsible', 'notes',
+                            'anchor_day', 'start_date', 'active'},
+            'bills': {'id', 'title', 'category', 'amount_cents', 'responsible', 'notes',
+                      'due_date', 'recurrence', 'series_id', 'occurrence_month', 'anchor_day',
+                      'paid_on', 'receipt_id', 'deleted'},
+            'bill_payments': {'id', 'bill_id', 'title', 'category', 'amount_cents',
+                              'due_date', 'responsible', 'paid_on'},
+            'bill_reminder_log': {'id', 'bill_id', 'days_before', 'reminder_date', 'notified_at'},
         }
         primary_keys = {
             'events': ['id'], 'tasks': ['id'], 'settings': ['key'],
             'reminder_log': ['event_id', 'event_date', 'event_time', 'reminder_minutes'],
+            'access_catalog': ['id'], 'bill_series': ['id'], 'bills': ['id'],
+            'bill_payments': ['id'], 'bill_reminder_log': ['id'],
         }
+        modern_tables = {'access_catalog', 'bill_series', 'bills', 'bill_payments', 'bill_reminder_log'}
+        if connection.execute('PRAGMA user_version').fetchone()[0] >= 4:
+            required['access_catalog'] |= {'password_ciphertext', 'is_corporate'}
+        if connection.execute('PRAGMA user_version').fetchone()[0] >= 3 and not modern_tables.issubset(objects):
+            raise ValueError('O banco atualizado está incompleto: faltam tabelas de acessos ou contas.')
         for table, expected in required.items():
             if table not in objects:
                 continue
@@ -92,6 +108,19 @@ class Database:
                                   for row in references)
             if not valid_reference:
                 raise ValueError('O vínculo dos lembretes com os compromissos é inválido.')
+        for table, parent, field in (('bills', 'bill_series', 'series_id'),
+                                      ('bill_payments', 'bills', 'bill_id'),
+                                      ('bill_reminder_log', 'bills', 'bill_id')):
+            if table in objects and not any(row[2] == parent and row[3] == field and row[4] == 'id'
+                    for row in connection.execute(f'PRAGMA foreign_key_list({table})')):
+                raise ValueError('Os vínculos entre contas e histórico são inválidos.')
+        for table, expected in (('bills', ['series_id', 'occurrence_month']), ('bill_payments', ['bill_id'])):
+            if table in objects:
+                unique_keys = [[col[0] for col in connection.execute(
+                    'SELECT name FROM pragma_index_info(?) ORDER BY seqno', (index[1],))]
+                    for index in connection.execute(f'PRAGMA index_list({table})') if index[2]]
+                if expected not in unique_keys:
+                    raise ValueError('Faltam restrições de unicidade para contas e pagamentos.')
         if connection.execute('PRAGMA foreign_key_check').fetchone() is not None:
             raise ValueError('O banco contém referências inválidas entre registros.')
 
@@ -112,7 +141,8 @@ class Database:
                 needs_migration = (
                     connection.execute('PRAGMA user_version').fetchone()[0] < SCHEMA_VERSION
                     or not {'description', 'end_time', 'priority'}.issubset(columns)
-                    or not {'tasks', 'settings', 'reminder_log'}.issubset(tables)
+                    or not {'tasks', 'settings', 'reminder_log', 'bills', 'bill_series',
+                            'bill_payments', 'bill_reminder_log', 'access_catalog'}.issubset(tables)
                 )
             if needs_migration:
                 self.backup(self._backup_name('antes_migracao'))
@@ -150,6 +180,10 @@ class Database:
                 PRIMARY KEY(event_id,event_date,event_time,reminder_minutes)
             )''')
             connection.executemany('INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)', DEFAULT_SETTINGS.items())
+            from .finance_storage import initialize_finance
+            from .catalog import initialize_catalog
+            initialize_finance(connection)
+            initialize_catalog(connection)
             connection.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
 
     @staticmethod

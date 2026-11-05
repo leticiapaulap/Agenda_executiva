@@ -10,6 +10,10 @@ import customtkinter as ctk
 
 from .dialogs import RecordDialog, DeleteEventDialog, EventDetailsDialog
 from .event_menu import EventActionMenu
+from .feature_views import FeatureViews
+from .finance import FinanceService
+from .finance_storage import SQLiteFinanceRepository
+from .catalog import AccessCatalog, SQLiteCatalogRepository
 from .services import AgendaService, CATEGORIES, PRIORITIES, REMINDERS, format_date, long_date, parse_date
 from .storage import Database
 from .theme import (BG, CARD, INK, MUTED, BORDER, SOFT, BLUE, NAV, GREEN, RED,
@@ -21,14 +25,21 @@ VIEWS = {'dashboard': ('Painel Inicial', 'Uma visão clara do seu dia.'),
          'calendar': ('Calendário', 'Reserve tempo para o que é importante.'),
          'events': ('Compromissos', 'Sua agenda profissional, organizada.'),
          'tasks': ('Tarefas', 'Transforme prioridades em entregas.'),
+         'catalog': ('Cofre de Senhas', 'Organize seus acessos e proteja as senhas pessoais autorizadas.'),
+         'bills': ('Contas e Vencimentos', 'Acompanhe contas, pagamentos e próximos vencimentos.'),
          'settings': ('Configurações', 'Uma agenda do seu jeito.')}
 
 
-class AgendaApp(ctk.CTk):
+class AgendaApp(FeatureViews, ctk.CTk):
     def __init__(self, db=None, *, enable_reminders=True):
         self.db = db or Database()
         self.db.initialize()
         self.service = AgendaService(self.db)
+        self.finance = FinanceService(SQLiteFinanceRepository(self.db))
+        self.initialize_desktop_vault()
+        self._catalog_search = ''
+        self._bill_filters = {'month': date.today().strftime('%Y-%m'), 'status': '',
+                              'category': '', 'due_start': '', 'due_end': ''}
         self.settings = self.db.get_settings()
         ctk.set_appearance_mode(self.appearance(self.settings))
         ctk.set_default_color_theme('blue')
@@ -87,7 +98,7 @@ class AgendaApp(ctk.CTk):
         self.sidebar.grid(row=0, column=0, sticky='ns')
         self.sidebar.grid_propagate(False)
         self.sidebar.grid_columnconfigure(0, weight=1)
-        self.sidebar.grid_rowconfigure(8, weight=1)
+        self.sidebar.grid_rowconfigure(10, weight=1)
         logo = ctk.CTkFrame(self.sidebar, fg_color='#254773', width=42, height=42, corner_radius=12)
         logo.grid(row=0, column=0, sticky='w', padx=24, pady=(30, 12))
         logo.pack_propagate(False)
@@ -96,15 +107,16 @@ class AgendaApp(ctk.CTk):
         label(self.sidebar, 'E X E C U T I V A', 11, color='#A8BDDA').grid(row=2, column=0, sticky='w', padx=25, pady=(0, 36))
         self.nav_buttons = {}
         for row, (key, icon) in enumerate([('dashboard', '◈'), ('calendar', '▦'), ('events', '≡'),
-                                           ('tasks', '✓'), ('settings', '⚙')], 3):
+                                           ('tasks', '✓'), ('catalog', '◇'), ('bills', '$'),
+                                           ('settings', '⚙')], 3):
             nav = ctk.CTkButton(self.sidebar, text=f'{icon}    {VIEWS[key][0]}', anchor='w',
-                                font=font(14), height=46, corner_radius=9,
+                                font=font(13), height=42, corner_radius=9,
                                 fg_color='transparent', hover_color='#233E60', text_color='#B8C9DF',
                                 command=lambda k=key: self.navigate(k))
             nav.grid(row=row, column=0, sticky='ew', padx=12, pady=3)
             self.nav_buttons[key] = nav
         bottom = ctk.CTkFrame(self.sidebar, fg_color='#1B3453', corner_radius=12)
-        bottom.grid(row=9, column=0, sticky='ew', padx=16, pady=22)
+        bottom.grid(row=11, column=0, sticky='ew', padx=16, pady=22)
         self.profile_label = label(bottom, self.settings['manager_name'] or 'Sua agenda pessoal', 13, True,
                                    color='white', wraplength=162, anchor='w', justify='left')
         self.profile_label.pack(anchor='w', padx=14, pady=(15, 4))
@@ -136,6 +148,7 @@ class AgendaApp(ctk.CTk):
 
     def render(self):
         logging.info('Render view=%s db=%s', self.current_view, self.db.path)
+        self.clear_vault_transients()
         self.close_event_menu()
         if self._search_job:
             self.after_cancel(self._search_job)
@@ -148,12 +161,14 @@ class AgendaApp(ctk.CTk):
         title, subtitle = VIEWS[self.current_view]
         self.heading.configure(text=title)
         self.subheading.configure(text=subtitle)
-        self.add_button.configure(text='+ Nova tarefa' if self.current_view == 'tasks' else '+ Novo compromisso')
+        self.add_button.configure(text={'tasks': '+ Nova tarefa', 'catalog': '+ Novo acesso',
+                                        'bills': '+ Nova conta'}.get(self.current_view, '+ Novo compromisso'))
         for child in self.content.winfo_children():
             child.destroy()
         try:
             {'dashboard': self.dashboard, 'calendar': self.calendar_view,
-             'events': self.events_view, 'tasks': self.tasks_view, 'settings': self.settings_view}[self.current_view]()
+             'events': self.events_view, 'tasks': self.tasks_view, 'catalog': self.catalog_view,
+             'bills': self.bills_view, 'settings': self.settings_view}[self.current_view]()
         except Exception as exc:
             self.show_error(exc)
 
@@ -331,6 +346,11 @@ class AgendaApp(ctk.CTk):
         counts = {}
         for event in events:
             counts[event['event_date']] = counts.get(event['event_date'], 0) + 1
+        bills = self.finance.calendar_items(self.calendar_month.isoformat(),
+                      self.calendar_month.replace(day=last_day).isoformat())
+        bill_counts = {}
+        for bill in bills:
+            bill_counts[bill['due_date']] = bill_counts.get(bill['due_date'], 0) + 1
         for r, week in enumerate(calendar.Calendar(firstweekday=0).monthdayscalendar(self.calendar_month.year, self.calendar_month.month), 2):
             for col, day in enumerate(week):
                 if not day:
@@ -339,13 +359,14 @@ class AgendaApp(ctk.CTk):
                 value = self.calendar_month.replace(day=day)
                 selected, current = value == self.selected_date, value == date.today()
                 count = counts.get(value.isoformat(), 0)
-                text = str(day) + (f'\n● {count}' if count else '')
+                bill_count = bill_counts.get(value.isoformat(), 0)
+                text = str(day) + (f'\n● {count}' if count else '') + (f'  $ {bill_count}' if bill_count else '')
                 ctk.CTkButton(box, text=text, width=1, height=64, corner_radius=10, font=font(14, current or selected),
                     fg_color=BLUE if selected else SOFT if current else 'transparent',
                     hover_color='#1E4EAE' if selected else SOFT, text_color='white' if selected else INK,
                     border_width=1 if current else 0, border_color=BLUE,
                     command=lambda d=value: self.select_day(d)).grid(row=r, column=col, sticky='ew', padx=5, pady=4)
-        label(box, '● Dia com compromissos     ·     Contorno azul: hoje', 11, color=MUTED).grid(row=9, column=0, columnspan=7, sticky='w', padx=20, pady=15)
+        label(box, '● Compromissos     $ Contas     ·     Contorno azul: hoje', 11, color=MUTED).grid(row=9, column=0, columnspan=7, sticky='w', padx=20, pady=15)
         daily = card(self.content)
         daily.grid(row=1, column=0, sticky='ew')
         self.section_title(daily, f'Agenda · {format_date(self.selected_date)}', long_date(self.selected_date))
@@ -356,6 +377,13 @@ class AgendaApp(ctk.CTk):
             self.empty(daily, 'Nenhum compromisso nesta data.', 'Selecione outro dia ou adicione um novo compromisso.', 'Agendar nesta data', self.open_dialog)
         else:
             button(daily, '+ Agendar nesta data', self.open_dialog, secondary=True).pack(anchor='w', padx=18, pady=(0, 16))
+        due_bills = self.finance.calendar_items(self.selected_date.isoformat(), self.selected_date.isoformat())
+        if due_bills:
+            due_box = card(self.content)
+            due_box.grid(row=2, column=0, sticky='ew', pady=(18, 0))
+            self.section_title(due_box, 'Contas com vencimento nesta data')
+            for bill in due_bills:
+                self.bill_row(due_box, bill)
 
     def change_month(self, step):
         index = self.calendar_month.year * 12 + self.calendar_month.month - 1 + step
@@ -493,6 +521,9 @@ class AgendaApp(ctk.CTk):
 
     def open_dialog(self, record=None, kind=None, mode='edit'):
         self.close_event_menu()
+        if kind is None and self.current_view in ('catalog', 'bills'):
+            self.open_feature_dialog('access' if self.current_view == 'catalog' else 'bill', record)
+            return
         if self._dialog is not None and self._dialog.winfo_exists():
             logging.warning('Dialog request ignored; existing dialog=%s mode=%s event_id=%s',
                             self._dialog, mode, (record or {}).get('id'))
@@ -675,7 +706,9 @@ class AgendaApp(ctk.CTk):
         button(form, 'Salvar preferências', self.save_settings).grid(row=6, column=1, sticky='e')
         data = card(self.content)
         data.grid(row=1, column=0, sticky='ew')
-        self.section_title(data, 'Seus dados, sob seu controle', 'O backup inclui compromissos, tarefas e preferências.')
+        self.section_title(data, 'Seus dados, sob seu controle',
+                           'O banco inclui compromissos, tarefas, contas, pagamentos e catálogo. '
+                           'Comprovantes ficam na pasta receipts e devem ser copiados separadamente.')
         label(data, str(self.db.path), 12, color=MUTED, wraplength=640, justify='left').pack(anchor='w', padx=20, pady=(0, 16))
         actions = ctk.CTkFrame(data, fg_color='transparent')
         actions.pack(fill='x', padx=20, pady=(0, 20))
@@ -759,6 +792,14 @@ class AgendaApp(ctk.CTk):
                     continue
                 self.show_reminder(event)
                 threading.Thread(target=send_native, args=(event,), daemon=True).start()
+            if self.settings.get('reminders_enabled') == '1':
+                for bill in self.finance.reminders():
+                    if not self.finance.claim_reminder(bill['id'], bill['days_before']):
+                        continue
+                    notice = {'title': f'{bill["title"]} · vence em {bill["days_before"]} dia(s)', 'bill': True,
+                              'event_date': bill['due_date'], 'event_time': 'Vencimento',
+                              'location': bill.get('responsible', '')}
+                    self.show_reminder(notice)
         except Exception:
             logging.exception('Falha ao verificar lembretes')
         finally:
@@ -772,9 +813,11 @@ class AgendaApp(ctk.CTk):
         panel.resizable(False, False)
         panel.configure(fg_color=CARD)
         panel.attributes('-topmost', True)
-        label(panel, 'É HORA DE SE PREPARAR', 11, True, color=BLUE).pack(anchor='w', padx=24, pady=(22, 8))
+        label(panel, 'CONTA PRÓXIMA DO VENCIMENTO' if event.get('bill') else 'É HORA DE SE PREPARAR',
+              11, True, color=BLUE).pack(anchor='w', padx=24, pady=(22, 8))
         label(panel, event['title'][:130], 19, True, wraplength=390, justify='left').pack(anchor='w', padx=24)
-        label(panel, f'{format_date(event["event_date"])} às {event["event_time"]}\n{event["location"][:150]}',
+        when = format_date(event['event_date']) + ('' if event.get('bill') else f' às {event["event_time"]}')
+        label(panel, f'{when}\n{event["location"][:150]}',
               13, color=MUTED, wraplength=390, justify='left').pack(anchor='w', padx=24, pady=8)
         button(panel, 'Entendido', panel.destroy, width=110).pack(anchor='e', padx=24, pady=(5, 15))
         try:
@@ -785,6 +828,7 @@ class AgendaApp(ctk.CTk):
 
     def close(self):
         self._closed = True
+        self.clear_vault_transients()
         self.close_event_menu()
         for job in (self._clock_job, self._reminder_job, self._search_job, self._toast_job):
             if job:
