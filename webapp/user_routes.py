@@ -23,7 +23,6 @@ def require_administrator():
 @bp.after_request
 def private_response(response):
     response.headers['Cache-Control'] = 'no-store, private'
-    response.headers['Referrer-Policy'] = 'no-referrer'
     return response
 
 

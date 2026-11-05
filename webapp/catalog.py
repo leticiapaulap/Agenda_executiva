@@ -105,7 +105,7 @@ def reauthenticate(password):
 def private_response(response):
     response.headers['Cache-Control'] = 'no-store'
     response.headers['Pragma'] = 'no-cache'
-    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     return response
 
 

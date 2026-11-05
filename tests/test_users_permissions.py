@@ -203,6 +203,97 @@ class UserPermissionsTests(unittest.TestCase):
             self.assertFalse(manager.active)
             self.assertNotEqual(original_hash, manager.password_hash)
 
+    def test_create_user_with_csrf_and_origin_validation_over_https_proxy(self):
+        self.app.config.update(
+            WTF_CSRF_SSL_STRICT=True,
+            SESSION_COOKIE_SECURE=True,
+        )
+        client = self.app.test_client()
+        forwarded_https = {'X-Forwarded-Proto': 'https'}
+
+        proxy_reports_http = client.get(
+            '/login', base_url='https://localhost',
+            headers={'X-Forwarded-Proto': 'http'})
+        self.assertNotIn('Strict-Transport-Security', proxy_reports_http.headers)
+
+        login_page = client.get('/login', base_url='https://localhost', headers=forwarded_https)
+        self.assertEqual('strict-origin-when-cross-origin',
+                         login_page.headers['Referrer-Policy'])
+        login_token = re.search(rb'name="csrf_token" value="([^"]+)"', login_page.data).group(1).decode()
+        login = client.post(
+            '/login', base_url='https://localhost', headers={
+                **forwarded_https, 'Referer': 'https://localhost/login',
+            }, data={
+                'csrf_token': login_token, 'username': ADMIN_USERNAME, 'password': ADMIN_PASSWORD,
+            })
+        self.assertEqual(302, login.status_code)
+        self.assertIn('Secure', login.headers.get('Set-Cookie', ''))
+        self.assertIn('max-age=31536000', login.headers.get('Strict-Transport-Security', ''))
+
+        form_page = client.get(
+            '/users/new', base_url='https://localhost', headers=forwarded_https)
+        self.assertEqual(200, form_page.status_code)
+        self.assertEqual('strict-origin-when-cross-origin',
+                         form_page.headers['Referrer-Policy'])
+        self.assertIn(b'action="/users/new"', form_page.data)
+        token = re.search(rb'name="csrf_token" value="([^"]+)"', form_page.data).group(1).decode()
+        data = {
+            'csrf_token': token, 'name': 'Gestora HTTPS', 'email': 'https@example.test',
+            'role': 'manager', 'password': 'Senha-https-teste-2026!',
+            'agenda_access': '1', 'reauth_password': ADMIN_PASSWORD, 'confirm': '1',
+        }
+
+        missing_referrer = client.post(
+            '/users/new', base_url='https://localhost', headers=forwarded_https, data=data)
+        self.assertEqual(400, missing_referrer.status_code)
+        self.assertIn(b'The referrer header is missing', missing_referrer.data)
+
+        missing_token = client.post(
+            '/users/new', base_url='https://localhost', headers={
+                **forwarded_https, 'Referer': 'https://localhost/users/new',
+            }, data={**data, 'csrf_token': ''})
+        self.assertEqual(400, missing_token.status_code)
+
+        invalid_token = client.post(
+            '/users/new', base_url='https://localhost', headers={
+                **forwarded_https, 'Referer': 'https://localhost/users/new',
+            }, data={**data, 'csrf_token': 'token-invalido'})
+        self.assertEqual(400, invalid_token.status_code)
+
+        external_origin = client.post(
+            '/users/new', base_url='https://localhost', headers={
+                **forwarded_https, 'Referer': 'https://site-externo.example/users/new',
+            }, data=data)
+        self.assertEqual(400, external_origin.status_code)
+        self.assertIn(b'The referrer does not match the host', external_origin.data)
+
+        response = client.post(
+            '/users/new', base_url='https://localhost', headers={
+                **forwarded_https, 'Referer': 'https://localhost/users/new',
+            }, data=data)
+        self.assertEqual(302, response.status_code)
+        self.assertEqual('/users/', response.headers['Location'])
+
+        with self.app.app_context():
+            user = db.session.query(User).filter_by(email='https@example.test').one()
+            user_id = user.id
+            self.assertTrue(check_password_hash(user.password_hash, 'Senha-https-teste-2026!'))
+
+        new_user_client = self.app.test_client()
+        page = new_user_client.get(
+            '/login', base_url='https://localhost', headers=forwarded_https)
+        token = re.search(rb'name="csrf_token" value="([^"]+)"', page.data).group(1).decode()
+        login = new_user_client.post(
+            '/login', base_url='https://localhost', headers={
+                **forwarded_https, 'Referer': 'https://localhost/login',
+            }, data={
+                'csrf_token': token, 'username': 'https@example.test',
+                'password': 'Senha-https-teste-2026!',
+            })
+        self.assertEqual(302, login.status_code)
+        with self.app.app_context():
+            self.assertTrue(db.session.get(User, user_id).active)
+
     def test_backend_role_permissions_cover_agenda_tasks_finance_vault_and_admin(self):
         self.admin()
         with self.app.app_context():

@@ -43,6 +43,8 @@ A aplicação exige `SECRET_KEY` e `DATABASE_URL` PostgreSQL; SQLite é rejeitad
 
 O pre-deploy aplica migrações Alembic antes da nova versão receber tráfego. Em planos sem comando pre-deploy, aplique `flask --app app db upgrade` no Shell do serviço antes do primeiro deploy e antes de cada deploy que introduza uma migração. Não use `db downgrade`: a migração inicial recusa reversão automática para impedir que tabelas com dados sejam apagadas.
 
+O Flask-WTF mantém a validação CSRF, incluindo verificação estrita de `Referer` para POSTs HTTPS (`WTF_CSRF_SSL_STRICT`, padrão seguro habilitado). A aplicação confia em um valor `X-Forwarded-Proto` do proxy imediato por meio de `ProxyFix(x_for=1, x_proto=1)`, para que HTTPS terminado no Render seja reconhecido; mantenha o serviço atrás do proxy gerenciado, sem expor o Gunicorn diretamente. As páginas administrativas e o cofre publicam `Referrer-Policy: strict-origin-when-cross-origin`: o navegador envia a origem necessária em submissões da própria aplicação, sem enviar caminhos completos a outros domínios. Tokens CSRF continuam obrigatórios e origens externas são recusadas.
+
 ## 3. Executar localmente
 
 Instale e inicie um PostgreSQL local; a versão web não usa SQLite como base persistente. No PowerShell, configure os segredos no processo local (ou use um `.env` e uma ferramenta local que o carregue):
