@@ -1,0 +1,15 @@
+.heading-actions{display:flex;align-items:center;gap:9px}
+.app-dialog{width:min(540px,calc(100% - 28px));max-height:min(90vh,760px);overflow-y:auto;margin:auto;padding:24px;border:1px solid var(--line);border-radius:12px;background:#fff;color:#243348;box-shadow:0 20px 70px #10233f30}
+.app-dialog::backdrop{background:#10233f88}
+.dialog-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+.dialog-heading .eyebrow{margin:0 0 5px}
+.dialog-heading h2{margin:0;color:#1e3049;font-size:18px}
+.dialog-close{width:30px;height:30px;flex:none;border:0;border-radius:6px;background:#f2f5f9;color:#526278;font-size:22px;line-height:1;cursor:pointer}
+.app-dialog .form-grid{gap:13px}
+.app-dialog .form-actions{margin-top:5px;padding-top:14px}
+.reminder-panel{padding-bottom:12px}
+.reminder-panel>.panel-heading{margin-bottom:10px}
+.reminder-empty{padding:22px 10px;gap:6px}
+.reminder-list .reminder-item{padding:10px 0}
+.reminder-item .status{flex:none}
+@media(max-width:700px){.heading-actions{flex-wrap:wrap;justify-content:flex-end}.app-dialog{padding:18px;max-height:90vh}.reminder-empty{padding:18px 8px}.reminder-panel{padding-bottom:8px}}

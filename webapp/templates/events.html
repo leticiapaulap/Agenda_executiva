@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Compromissos{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">SUA AGENDA</p><h1>Compromissos</h1><p class="muted">Agenda organizacional compartilhada. A edição respeita seu perfil e a autoria do registro.</p></div>{% if can_write_agenda() %}<a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a>{% endif %}</div>
+<div class="page-heading"><div><p class="eyebrow">SUA AGENDA</p><h1>Compromissos</h1><p class="muted">Agenda organizacional compartilhada. A edição respeita seu perfil e a autoria do registro.</p></div><div class="heading-actions">{% if can_read_agenda() %}<button class="button secondary" type="button" data-dialog-open="#eventExportDialog">Exportar</button>{% endif %}{% if can_write_agenda() %}<a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a>{% endif %}</div></div>
 <form class="filter-bar panel" method="get">
   {% if selected_date %}<input type="hidden" name="date" value="{{ selected_date }}">{% endif %}
   <label class="filter-search">Pesquisar<input type="search" name="q" value="{{ query }}" placeholder="Título, local, descrição..."></label>
@@ -31,4 +31,5 @@
   </tbody></table></div>
   {% else %}<div class="empty-state"><span>⌕</span><strong>Nenhum compromisso encontrado</strong><p>Ajuste a pesquisa ou crie um novo compromisso.</p></div>{% endif %}
 </section>
+{% if can_read_agenda() %}{% include '_event_export_modal.html' %}{% endif %}
 {% endblock %}

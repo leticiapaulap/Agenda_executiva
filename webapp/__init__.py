@@ -55,6 +55,7 @@ def create_app(test_config=None):
         WTF_CSRF_TIME_LIMIT=3600,
         ADMIN_USERNAME=os.environ.get('ADMIN_USERNAME', ''),
         ADMIN_PASSWORD_HASH=os.environ.get('ADMIN_PASSWORD_HASH', ''),
+        AGENDA_MANAGER_NAME=os.environ.get('AGENDA_MANAGER_NAME', ''),
         VAULT_ENABLED=os.environ.get('VAULT_ENABLED', 'false'),
         VAULT_KEYS=os.environ.get('VAULT_KEYS', ''),
         VAULT_ACTIVE_KEY_ID=os.environ.get('VAULT_ACTIVE_KEY_ID', ''),

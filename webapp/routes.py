@@ -4,14 +4,16 @@ from urllib.parse import urlparse
 import time
 
 from flask import (Blueprint, abort, current_app, flash, redirect, render_template,
-                   request, session, url_for)
+                   request, send_file, session, url_for)
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import delete, func, select
+from werkzeug.exceptions import HTTPException
 
 from agenda.services import AgendaService, CATEGORIES, MONTHS, PRIORITIES, REMINDERS
 from agenda.finance import FinanceService
 from .auth import authenticate, bootstrap_legacy_admin, login_attempt_for
 from .finance_repository import WebFinanceRepository
+from .exports import export_ics, export_pdf, export_xlsx, resolve_period
 from .models import (Event, LoginAttempt, ManualReminder, ReminderState, Task,
                      User, db, utc_now)
 from .permissions import (can_edit_record, can_read_finance, can_write_agenda,
@@ -184,7 +186,55 @@ def events():
     rows = repo.list_events(search=query, status=status, priority=priority,
                             start=selected_date or None, end=selected_date or None)
     return render_template('events.html', events=rows, query=query, status=status,
-                           priority=priority, priorities=PRIORITIES, selected_date=selected_date)
+                           priority=priority, priorities=PRIORITIES, categories=CATEGORIES,
+                           selected_date=selected_date)
+
+
+@bp.get('/events/export')
+def export_events():
+    require_agenda_read()
+    try:
+        start, end = resolve_period(request.args, local_now().date())
+        file_format = request.args.get('format', 'pdf')
+        include_completed = request.args.get('include_completed', '0')
+        category = request.args.get('category', 'Todas')
+        priority = request.args.get('priority', 'Todas')
+        if file_format not in ('pdf', 'xlsx', 'ics'):
+            raise ValueError('Selecione um formato de exportação válido.')
+        if include_completed not in ('0', '1'):
+            raise ValueError('Selecione uma opção válida para compromissos concluídos.')
+        if category not in ('Todas', *CATEGORIES):
+            raise ValueError('Selecione uma categoria válida.')
+        if priority not in ('Todas', *PRIORITIES):
+            raise ValueError('Selecione uma prioridade válida.')
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    events = PostgresRepository().list_events(
+        start=start.isoformat(), end=end.isoformat(),
+        status='Todos' if include_completed == '1' else 'Pendentes',
+        category=category, priority=priority,
+    )
+    issued_at = local_now()
+    manager_name = (current_app.config.get('AGENDA_MANAGER_NAME') or '').strip()
+    if file_format == 'pdf':
+        output = export_pdf(events, start, end, issued_at, manager_name)
+        mimetype, extension = 'application/pdf', 'pdf'
+    elif file_format == 'xlsx':
+        output = export_xlsx(events)
+        mimetype, extension = (
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx',
+        )
+    else:
+        output = export_ics(events, issued_at, start, end)
+        mimetype, extension = 'text/calendar; charset=utf-8', 'ics'
+    response = send_file(
+        output, mimetype=mimetype, as_attachment=True,
+        download_name=f'agenda_executiva_{start:%Y-%m}.{extension}',
+        max_age=0, conditional=False,
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
 
 
 @bp.route('/events/new', methods=['GET', 'POST'])
@@ -350,7 +400,8 @@ def calendar():
                            items_by_day=items_by_day,
                            today=today,
                            bills_by_day=bills_by_day,
-                           previous=previous, next_month=next_month)
+                           previous=previous, next_month=next_month,
+                           categories=CATEGORIES, priorities=PRIORITIES)
 
 
 @bp.route('/tasks', methods=['GET', 'POST'])
@@ -427,6 +478,26 @@ def reminders():
     filter_values = {'all', 'today', 'upcoming', 'overdue', 'completed'}
     if selected_filter not in filter_values:
         abort(400)
+    edit_id = request.args.get('edit', '')
+    editing_reminder = None
+    if edit_id:
+        editing_reminder = db.session.get(ManualReminder, edit_id)
+        if not editing_reminder or editing_reminder.owner_id != current_user.id:
+            abort(404)
+    if request.method == 'POST':
+        manual_form = request.form.to_dict()
+    elif editing_reminder:
+        manual_form = {
+            'reminder_id': editing_reminder.id,
+            'title': editing_reminder.title,
+            'notes': editing_reminder.notes,
+            'priority': editing_reminder.priority,
+            'due_at': from_utc_naive(editing_reminder.due_at).strftime('%Y-%m-%dT%H:%M'),
+        }
+    else:
+        manual_form = {'title': '', 'notes': '', 'priority': 'Normal', 'due_at': ''}
+    show_reminder_modal = bool(editing_reminder or request.args.get('new') == '1'
+                               or request.method == 'POST')
     alerts = []
     repo = PostgresRepository()
     if current_user.can_view_agenda:
@@ -520,12 +591,14 @@ def reminders():
                            selected_filter=selected_filter,
                            active_count=sum(not alert['completed'] for alert in visible),
                            can_add_reminder=current_user.can_view_agenda,
-                           priorities=PRIORITIES)
+                           priorities=PRIORITIES, manual_form=manual_form,
+                           show_reminder_modal=show_reminder_modal)
 
 
 @bp.post('/reminders/manual')
 def create_manual_reminder():
     require_agenda_read()
+    reminder_id = request.form.get('reminder_id', '').strip()
     title = request.form.get('title', '').strip()
     notes = request.form.get('notes', '').strip()
     priority = request.form.get('priority', 'Normal')
@@ -537,20 +610,32 @@ def create_manual_reminder():
         due_at = datetime.fromisoformat(request.form.get('due_at', ''))
         if due_at.tzinfo is None:
             due_at = due_at.replace(tzinfo=SAO_PAULO)
-        reminder = ManualReminder(
-            owner_id=current_user.id, title=title, notes=notes,
-            due_at=to_utc_naive(due_at), priority=priority)
+        reminder = db.session.get(ManualReminder, reminder_id) if reminder_id else None
+        if reminder_id and (not reminder or reminder.owner_id != current_user.id):
+            abort(404)
+        if reminder is None:
+            reminder = ManualReminder(owner_id=current_user.id)
+        reminder.title = title
+        reminder.notes = notes
+        reminder.due_at = to_utc_naive(due_at)
+        reminder.priority = priority
         db.session.add(reminder)
         db.session.commit()
-        flash('Lembrete criado com sucesso.', 'success')
+        flash('Lembrete atualizado com sucesso.' if reminder_id else
+              'Lembrete criado com sucesso.', 'success')
+        return redirect(url_for('web.reminders'))
     except ValueError as exc:
         db.session.rollback()
         flash(str(exc), 'error')
+        return reminders()
+    except HTTPException:
+        db.session.rollback()
+        raise
     except Exception:
         db.session.rollback()
         current_app.logger.exception('Falha ao criar lembrete manual')
         flash('Não foi possível criar o lembrete. O erro foi registrado.', 'error')
-    return redirect(url_for('web.reminders'))
+        return reminders()
 
 
 @bp.post('/reminders/<item_type>/<item_id>/<action>')

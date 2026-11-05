@@ -175,6 +175,7 @@ class ReminderCenterWebTests(unittest.TestCase):
         self.assertIsNone(result.exception)
         with restarted.app_context():
             self.assertEqual(4, db.session.query(Task).count())
+            self.assertIsNone(db.session.get(ManualReminder, manual_id))
             db.session.remove()
             db.engine.dispose()
 
@@ -203,6 +204,54 @@ class ReminderCenterWebTests(unittest.TestCase):
         self.assertIn('grid-template-columns:repeat(7,minmax(0,1fr))', stylesheet)
         self.assertIn('.calendar-day{min-height:84px', stylesheet)
         self.assertIn('.calendar-scroll{overflow-x:auto}', stylesheet)
+
+    def test_manual_reminder_modal_opens_and_supports_edit_with_list_refresh(self):
+        fixed_now = datetime(2026, 11, 5, 8, 45, tzinfo=SAO_PAULO)
+        default_page = self.client.get('/reminders')
+        self.assertIn(b'id="reminderDialog"', default_page.data)
+        self.assertIn(b'data-open="false"', default_page.data)
+        self.assertNotIn(b'Criar alerta independente', default_page.data)
+        open_page = self.client.get('/reminders?new=1')
+        self.assertIn(b'data-open="true"', open_page.data)
+        with self.app.app_context():
+            self.assertEqual(0, db.session.query(ManualReminder).count())
+
+        created = self.client.post('/reminders/manual', data={
+            'csrf_token': self.csrf('/reminders'),
+            'title': 'Lembrete editável',
+            'notes': 'Observações iniciais',
+            'due_at': '2026-11-06T11:30',
+            'priority': 'Alta',
+        })
+        self.assertEqual(302, created.status_code)
+        with self.app.app_context():
+            reminder = db.session.query(ManualReminder).filter_by(
+                title='Lembrete editável').one()
+            reminder_id = reminder.id
+
+        with patch('webapp.routes.local_now', return_value=fixed_now):
+            edit_page = self.client.get(f'/reminders?edit={reminder_id}')
+        self.assertIn(b'data-open="true"', edit_page.data)
+        self.assertIn(b'value="Lembrete edit\xc3\xa1vel"', edit_page.data)
+        changed = self.client.post('/reminders/manual', data={
+            'csrf_token': self.csrf('/reminders'),
+            'reminder_id': reminder_id,
+            'title': 'Lembrete atualizado',
+            'notes': 'Observações alteradas',
+            'due_at': '2026-11-07T12:15',
+            'priority': 'Urgente',
+        })
+        self.assertEqual(302, changed.status_code)
+        with self.app.app_context():
+            reminder = db.session.get(ManualReminder, reminder_id)
+            self.assertEqual('Lembrete atualizado', reminder.title)
+            self.assertEqual('Observações alteradas', reminder.notes)
+            self.assertEqual('Urgente', reminder.priority)
+            self.assertEqual(datetime(2026, 11, 7, 12, 15, tzinfo=SAO_PAULO),
+                             from_utc_naive(reminder.due_at))
+        with patch('webapp.routes.local_now', return_value=fixed_now):
+            refreshed = self.client.get('/reminders')
+        self.assertIn(b'Lembrete atualizado', refreshed.data)
 
 
 if __name__ == '__main__':

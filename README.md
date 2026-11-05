@@ -117,6 +117,8 @@ Se aparecer `ModuleNotFoundError: No module named 'customtkinter'`, o arquivo fo
 
 As versões desktop e web são independentes: o desktop continua usando o SQLite local, enquanto a web exige PostgreSQL em `DATABASE_URL` e login individual. A publicação não envia nem importa automaticamente o banco local. A versão web migra a conta administrativa antiga uma vez e permite administrar perfis, acessos e sessões no menu **Usuários**; o cofre requer permissão explícita. Na web, o calendário compacto reúne compromissos, tarefas e vencimentos, e a Central de Alertas exibe apenas compromissos dentro da antecedência configurada, tarefas e contas próximas/vencidas e lembretes manuais. As datas e horas desses alertas seguem `America/Sao_Paulo`. Consulte [o guia do Render](docs/RENDER.md) para migrações e validação.
 
+Na web, **Calendário** e **Compromissos** também permitem exportar PDF, Excel e ICS com filtros de período e prioridade; os arquivos são privados e preparados em memória. A Central de Alertas abre o cadastro e a edição de lembretes manuais em modal, sem formulário permanente. Consulte a seção de [exportação e lembretes no guia do Render](docs/RENDER.md#9-exportação-e-edição-de-lembretes) para permissões e testes.
+
 Testes Flask isolados do banco pessoal:
 
 ```powershell

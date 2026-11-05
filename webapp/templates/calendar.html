@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Calendário{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">PLANEJAMENTO</p><h1>Calendário</h1><p class="muted">Compromissos, tarefas e vencimentos em uma visão mensal.</p></div>{% if can_write_agenda() %}<a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a>{% endif %}</div>
+<div class="page-heading"><div><p class="eyebrow">PLANEJAMENTO</p><h1>Calendário</h1><p class="muted">Compromissos, tarefas e vencimentos em uma visão mensal.</p></div><div class="heading-actions">{% if can_read_agenda() %}<button class="button secondary" type="button" data-dialog-open="#eventExportDialog">Exportar</button>{% endif %}{% if can_write_agenda() %}<a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a>{% endif %}</div></div>
 <section class="panel calendar-panel">
   <div class="calendar-heading"><a class="calendar-arrow" href="{{ url_for('web.calendar', month=previous.isoformat()) }}" aria-label="Mês anterior">‹</a><h2>{{ month_name }} {{ month.year }}</h2><a class="calendar-arrow" href="{{ url_for('web.calendar', month=next_month.isoformat()) }}" aria-label="Próximo mês">›</a><a class="text-link" href="{{ url_for('web.calendar') }}">Hoje</a></div>
   <div class="calendar-scroll">
@@ -25,4 +25,5 @@
   </div>
   <div class="calendar-legend"><span class="legend-event">Compromisso</span><span class="legend-task">Tarefa</span><span class="legend-bill">Vencimento</span></div>
 </section>
+{% if can_read_agenda() %}{% include '_event_export_modal.html' %}{% endif %}
 {% endblock %}
