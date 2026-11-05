@@ -2,6 +2,14 @@
 
 Ambiente: Windows, Python 3.14.10, CustomTkinter 5.2.2, Pillow 13.0.0 e PyInstaller 6.22.3.
 
+## Calendário compacto e central de alertas — 05/11/2026
+
+- **125 testes automatizados aprovados** com `.venv\Scripts\python.exe -m unittest discover -s tests -v`. Novos testes cobrem a janela de aviso de compromissos, fuso `America/Sao_Paulo`, tarefas concluídas/vencidas, contas pagas/vencidas/próximas, leitura/adiamento, cadastro e exclusão de lembrete manual, persistência após reinicialização e detalhe diário do calendário.
+- A migração aditiva `0006_reminder_center` foi aplicada em bancos SQLite temporários, preservando as tabelas existentes. A cadeia foi compilada offline para PostgreSQL e gerou as tabelas/índices esperados; não foi conectada a uma instância Render/PostgreSQL real.
+- Teste real em Microsoft Edge headless com dados fictícios: calendário com dez eventos exibiu três itens e `+ 7 mais`; célula desktop de 84 px (redução de 28% frente ao mínimo anterior de 117 px). Em 390 px, o calendário permite rolagem horizontal interna, sem overflow da página; `/reminders` também não teve overflow nem erros JavaScript.
+- Timestamps de lembretes manuais são persistidos como UTC naive e convertidos para o horário local de São Paulo na exibição. Os estados de leitura/adiamento dos alertas derivados são individuais por usuário.
+- Dependências não foram alteradas. Não houve acesso ou alteração de dados reais, deploy, teste de PostgreSQL Render ou reconstrução do executável desktop. A aparência foi verificada em Edge para desktop/mobile, mas não em todos os navegadores e dispositivos.
+
 ## Aprimoramento do cofre com senhas — 05/11/2026
 
 - **114 testes automatizados aprovados** com `.venv\Scripts\python.exe -m unittest discover -s tests`. São 24 testes específicos em `test_vault.py`, 4 da ferramenta desktop em `test_vault_admin.py` e 86 testes de regressão. Todos usam bancos temporários e chaves próprias de teste.

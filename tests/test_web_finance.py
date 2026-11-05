@@ -127,11 +127,26 @@ class WebFinanceTests(unittest.TestCase):
         calendar = self.client.get(f'/calendar?month={month}-01')
         self.assertEqual(200, calendar.status_code)
         self.assertIn(f'/bills/{bill_id}/edit'.encode(), calendar.data)
+        daily = self.client.get(f'/calendar/date/{due.isoformat()}')
+        self.assertIn('Vencimento integrado'.encode(), daily.data)
         reminders = self.client.get('/reminders')
         self.assertIn('Vencimento integrado'.encode(), reminders.data)
-        self.assertIn(b'Vence em 7 dias', reminders.data)
+        self.assertIn(b'Prazo', reminders.data)
         self.assertEqual(400, self.client.get('/bills?month=invalid').status_code)
         self.assertEqual(400, self.client.get('/bills?due_start=2026-12-30&due_end=2026-01-01').status_code)
+
+    def test_paid_bill_is_removed_from_alert_center(self):
+        self.login()
+        yesterday = date.today() - timedelta(days=1)
+        bill_id = self.create_bill(title='Conta vencida pendente', due_date=yesterday.isoformat())
+        reminders = self.client.get('/reminders')
+        self.assertIn('Conta vencida pendente'.encode(), reminders.data)
+        response = self.client.post(f'/reminders/bill/{bill_id}/complete', data={
+            'csrf_token': self.csrf('/reminders'),
+        })
+        self.assertEqual(302, response.status_code)
+        self.assertEqual('Paga', self.get_bill(bill_id)['status'])
+        self.assertNotIn('Conta vencida pendente'.encode(), self.client.get('/reminders').data)
 
     def test_receipts_private_validated_and_overposting_rejected(self):
         self.login()

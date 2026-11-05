@@ -1,16 +1,59 @@
 {% extends "base.html" %}
-{% block title %}Lembretes{% endblock %}
+{% block title %}Central de alertas{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">ACOMPANHAMENTO</p><h1>Lembretes</h1><p class="muted">Próximos compromissos e tarefas com prazo vencendo ou vencido.</p></div></div>
-<div class="content-grid">
-  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">AGENDA</p><h2>Próximos compromissos</h2></div></div>
-    {% if events %}<div class="record-list">{% for event in events %}<article class="record"><div class="date-tile"><strong>{{ event.event_date[8:10] }}</strong><small>{{ event.event_date[5:7] }}/{{ event.event_date[:4] }}</small></div><div class="record-main"><a class="record-title" href="{{ url_for('web.edit_event', event_id=event.id) if can_edit_record(event) else url_for('web.event_details', event_id=event.id) }}">{{ event.title }}</a><span>{{ event.event_time }} · {{ event.category }} · {% if event.reminder_minutes < 0 %}Sem lembrete{% elif event.reminder_minutes == 0 %}Na hora{% else %}{{ event.reminder_minutes }} min antes{% endif %}</span></div><span class="priority {{ event.priority|lower }}">{{ event.priority }}</span></article>{% endfor %}</div>{% else %}<div class="empty-state"><strong>Sem próximos compromissos</strong></div>{% endif %}
-  </section>
-  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">PRAZOS</p><h2>Tarefas vencendo</h2></div></div>
-    {% if tasks %}<div class="record-list">{% for task in tasks %}<article class="task-row"><div class="record-main"><a class="record-title" href="{{ url_for('web.tasks', edit=task.id) if can_edit_task(task) else url_for('web.task_details', task_id=task.id) }}">{{ task.title }}</a><span>Prazo: {{ task.due_date[8:10] }}/{{ task.due_date[5:7] }}/{{ task.due_date[:4] }}</span></div><span class="priority {{ task.priority|lower }}">{{ task.priority }}</span></article>{% endfor %}</div>{% else %}<div class="empty-state"><strong>Nenhum prazo vencendo</strong></div>{% endif %}
-  </section>
+<div class="page-heading">
+  <div><p class="eyebrow">ACOMPANHAMENTO</p><h1>Central de alertas e prazos</h1>
+    <p class="muted">{{ active_count }} alerta{{ '' if active_count == 1 else 's' }} exigindo atenção.</p></div>
+  {% if can_add_reminder %}<a class="button primary" href="#novo-lembrete">＋ Novo lembrete</a>{% endif %}
 </div>
-<section class="panel"><div class="panel-heading"><div><p class="eyebrow">CONTAS E VENCIMENTOS</p><h2>Lembretes de pagamento</h2></div></div><p class="muted">Avisos na agenda aos 7, 3 e 1 dia antes do vencimento. Consulte esta página para acompanhar os prazos.</p>
-{% if bill_reminders %}<div class="record-list">{% for bill in bill_reminders %}<article class="record"><div class="record-main"><a class="record-title" href="{{ url_for('finance.edit_bill', bill_id=bill.id) }}">{{ bill.title }}</a><span>Vence em {{ bill.days_before }} {{ 'dia' if bill.days_before == 1 else 'dias' }} · {{ bill.due_date }} · R$ {{ bill.amount|replace('.', ',') }}</span></div><span class="status">Pendente</span></article>{% endfor %}</div>{% else %}<div class="empty-state"><strong>Nenhuma conta nos prazos de lembrete hoje</strong></div>{% endif %}
+<nav class="reminder-filters" aria-label="Filtrar alertas">
+  {% for key, label in [('all','Todos'), ('today','Hoje'), ('upcoming','Próximos'), ('overdue','Vencidos'), ('completed','Concluídos')] %}
+  <a class="{{ 'active' if selected_filter == key }}" href="{{ url_for('web.reminders', filter=key) }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+<section class="panel">
+  <div class="panel-heading"><div><p class="eyebrow">PRAZOS E NOTIFICAÇÕES</p><h2>{{ {'all':'Alertas ativos','today':'Para hoje','upcoming':'Próximos','overdue':'Vencidos','completed':'Concluídos'}[selected_filter] }}</h2></div></div>
+  {% if alerts %}
+  <div class="record-list reminder-list">
+    {% for alert in alerts %}
+    <article class="reminder-item {{ alert.bucket }} {{ 'unread' if not alert.is_read }}">
+      <span class="reminder-mark {{ alert.type }}" aria-hidden="true">{{ {'event':'◷','task':'✓','bill':'＄','manual':'!'}[alert.type] }}</span>
+      <div class="record-main">
+        {% if alert.url %}<a class="record-title" href="{{ alert.url }}">{{ alert.title }}</a>{% else %}<strong class="record-title">{{ alert.title }}</strong>{% endif %}
+        <span>{{ {'event':'Compromisso','task':'Tarefa','bill':'Conta','manual':'Lembrete manual'}[alert.type] }} ·
+          {% if alert.type == 'event' %}Aviso {{ alert.due_at.strftime('%d/%m/%Y às %H:%M') }}
+          {% elif alert.type == 'manual' %}{{ alert.due_at.strftime('%d/%m/%Y às %H:%M') }}
+          {% else %}Prazo {{ alert.due_date.strftime('%d/%m/%Y') }} às 09:00{% if alert.type == 'bill' %} · R$ {{ alert.amount|replace('.', ',') }}{% endif %}{% endif %}
+        </span>
+      </div>
+      {% if alert.bucket == 'overdue' %}<span class="status overdue-tag">Vencido</span>
+      {% elif alert.bucket == 'today' %}<span class="status">Hoje</span>
+      {% elif alert.bucket == 'completed' %}<span class="status done">Concluído</span>{% endif %}
+      <span class="priority {{ alert.priority|lower }}">{{ alert.priority }}</span>
+      <div class="reminder-actions">
+        {% if not alert.is_read %}<form method="post" action="{{ url_for('web.update_reminder', item_type=alert.type, item_id=alert.item_id, action='read') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit">Marcar como lido</button></form>{% endif %}
+        {% if alert.bucket != 'completed' %}<form method="post" action="{{ url_for('web.update_reminder', item_type=alert.type, item_id=alert.item_id, action='snooze') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit">Adiar 1 dia</button></form>{% endif %}
+        {% if alert.actions and alert.bucket != 'completed' %}<form method="post" action="{{ url_for('web.update_reminder', item_type=alert.type, item_id=alert.item_id, action='complete') }}" {% if alert.type == 'bill' %}data-confirm="Confirmar o pagamento desta conta?"{% endif %}><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit">{{ 'Pagar' if alert.type == 'bill' else 'Concluir' }}</button></form>{% endif %}
+        {% if alert.type == 'manual' %}<form method="post" action="{{ url_for('web.update_reminder', item_type='manual', item_id=alert.item_id, action='delete') }}" data-confirm="Excluir este lembrete?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action danger-text" type="submit">Excluir</button></form>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><span>✓</span><strong>Nenhum alerta nesta categoria</strong><p>Os avisos de prazos e compromissos aparecerão aqui quando exigirem atenção.</p></div>
+  {% endif %}
 </section>
+{% if can_add_reminder %}
+<section class="panel form-panel" id="novo-lembrete">
+  <div class="panel-heading"><div><p class="eyebrow">LEMBRETE MANUAL</p><h2>Criar alerta independente</h2></div></div>
+  <form method="post" action="{{ url_for('web.create_manual_reminder') }}" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="span-2">Título<input name="title" maxlength="200" required></label>
+    <label>Data e horário<input type="datetime-local" name="due_at" required></label>
+    <label>Prioridade<select name="priority">{% for priority in priorities %}<option>{{ priority }}</option>{% endfor %}</select></label>
+    <label class="span-2">Observações<textarea name="notes" rows="3" maxlength="5000"></textarea></label>
+    <div class="form-actions span-2"><button class="button primary" type="submit">Salvar lembrete</button></div>
+  </form>
+</section>
+{% endif %}
 {% endblock %}

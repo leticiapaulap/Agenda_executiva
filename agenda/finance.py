@@ -264,8 +264,8 @@ class FinanceService:
         result.update({key: money(result[key + '_cents']) for key in ('to_pay', 'paid', 'overdue')})
         return result
 
-    def calendar_items(self, start, end):
-        return self.list_bills(due_start=start, due_end=end)
+    def calendar_items(self, start, end, today=None):
+        return self.list_bills(due_start=start, due_end=end, today=today)
 
     def reminders(self, today=None):
         today = finance_date(today or date.today())

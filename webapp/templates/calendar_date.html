@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Agenda do dia{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">PLANEJAMENTO</p><h1>{{ selected.strftime('%d/%m/%Y') }}</h1><p class="muted">Todos os itens desta data.</p></div><a class="button secondary" href="{{ url_for('web.calendar', month=selected.replace(day=1).isoformat()) }}">Voltar ao calendário</a></div>
+<section class="panel">
+  {% if entries %}<div class="record-list">{% for entry in entries %}<article class="record"><span class="status">{{ entry.type }}</span><div class="record-main"><a class="record-title" href="{{ entry.url }}">{{ entry.title }}</a>{% if entry.time %}<span>{{ entry.time }}</span>{% endif %}</div></article>{% endfor %}</div>
+  {% else %}<div class="empty-state"><strong>Nenhum item nesta data</strong></div>{% endif %}
+</section>
+{% endblock %}

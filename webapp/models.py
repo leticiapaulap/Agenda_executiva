@@ -189,3 +189,38 @@ class BillReminderLog(db.Model):
     days_before = db.Column(db.Integer, nullable=False)
     reminder_date = db.Column(db.Date, nullable=False)
     notified_at = db.Column(db.String(32), nullable=False)
+
+
+class ManualReminder(db.Model):
+    __tablename__ = 'manual_reminders'
+    __table_args__ = (
+        CheckConstraint("priority IN ('Urgente','Alta','Normal','Baixa')",
+                        name='ck_manual_reminders_priority'),
+        Index('ix_manual_reminders_owner_due', 'owner_id', 'due_at'),
+    )
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    owner_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    notes = db.Column(db.Text, nullable=False, default='')
+    due_at = db.Column(db.DateTime, nullable=False)
+    priority = db.Column(db.String(20), nullable=False, default='Normal')
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    completed = db.Column(db.Boolean, nullable=False, default=False)
+    snoozed_until = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+
+class ReminderState(db.Model):
+    __tablename__ = 'reminder_states'
+    __table_args__ = (
+        CheckConstraint("item_type IN ('event','task','bill')", name='ck_reminder_states_type'),
+        db.UniqueConstraint('user_id', 'item_type', 'item_id', name='uq_reminder_states_item'),
+        Index('ix_reminder_states_user', 'user_id'),
+    )
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
+    item_type = db.Column(db.String(10), nullable=False)
+    item_id = db.Column(db.String(120), nullable=False)
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    read_at = db.Column(db.DateTime, nullable=True)
+    snoozed_until = db.Column(db.DateTime, nullable=True)
