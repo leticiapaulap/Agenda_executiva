@@ -3,10 +3,10 @@ from pathlib import Path
 from datetime import date, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
-from flask import Flask, redirect, request, url_for
+from flask import Flask, current_app, redirect, request, url_for
 from flask_login import LoginManager, current_user
 from flask_migrate import Migrate
-from flask_wtf.csrf import CSRFProtect, generate_csrf
+from flask_wtf.csrf import CSRFError, CSRFProtect, generate_csrf
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .models import User, db
@@ -50,6 +50,8 @@ def create_app(test_config=None):
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         REMEMBER_COOKIE_HTTPONLY=True,
         REMEMBER_COOKIE_SECURE=True,
+        WTF_CSRF_ENABLED=True,
+        WTF_CSRF_SSL_STRICT=True,
         WTF_CSRF_TIME_LIMIT=3600,
         ADMIN_USERNAME=os.environ.get('ADMIN_USERNAME', ''),
         ADMIN_PASSWORD_HASH=os.environ.get('ADMIN_PASSWORD_HASH', ''),
@@ -75,7 +77,6 @@ def create_app(test_config=None):
     if app.config.get('TESTING') and not app.config.get('SECRET_KEY'):
         app.config['SECRET_KEY'] = 'test-secret-key-not-for-production'
     if app.config.get('TESTING'):
-        app.config.setdefault('WTF_CSRF_SSL_STRICT', False)
         app.config.setdefault('SESSION_COOKIE_SECURE', False)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
@@ -134,6 +135,15 @@ def create_app(test_config=None):
         if request.is_secure:
             response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000')
         return response
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(error):
+        current_app.logger.warning(
+            'CSRF rejected endpoint=%s method=%s secure=%s referrer_present=%s reason=%s',
+            request.endpoint, request.method, request.is_secure,
+            bool(request.referrer), error.description,
+        )
+        return error.description, 400
 
     @app.before_request
     def require_login():

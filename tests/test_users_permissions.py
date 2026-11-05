@@ -1,10 +1,13 @@
+import os
 import re
 import tempfile
 import unittest
 from datetime import date, time
 from pathlib import Path
+from uuid import uuid4
 
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from webapp import create_app
@@ -208,6 +211,8 @@ class UserPermissionsTests(unittest.TestCase):
             WTF_CSRF_SSL_STRICT=True,
             SESSION_COOKIE_SECURE=True,
         )
+        self.assertTrue(self.app.config['WTF_CSRF_ENABLED'])
+        self.assertTrue(self.app.config['WTF_CSRF_SSL_STRICT'])
         client = self.app.test_client()
         forwarded_https = {'X-Forwarded-Proto': 'https'}
 
@@ -236,7 +241,15 @@ class UserPermissionsTests(unittest.TestCase):
         self.assertEqual('strict-origin-when-cross-origin',
                          form_page.headers['Referrer-Policy'])
         self.assertIn(b'action="/users/new"', form_page.data)
-        token = re.search(rb'name="csrf_token" value="([^"]+)"', form_page.data).group(1).decode()
+        registration_form = re.search(rb'<form\b[^>]*action="/users/new"[^>]*>(.*?)</form>',
+                                      form_page.data, re.DOTALL)
+        self.assertIsNotNone(registration_form)
+        self.assertIn(b'referrerpolicy="strict-origin-when-cross-origin"',
+                      registration_form.group(0))
+        self.assertNotIn(b'no-referrer', registration_form.group(0))
+        token_match = re.search(rb'name="csrf_token" value="([^"]+)"', registration_form.group(1))
+        self.assertIsNotNone(token_match, 'Cadastro must include a CSRF token field.')
+        token = token_match.group(1).decode()
         data = {
             'csrf_token': token, 'name': 'Gestora HTTPS', 'email': 'https@example.test',
             'role': 'manager', 'password': 'Senha-https-teste-2026!',
@@ -293,6 +306,68 @@ class UserPermissionsTests(unittest.TestCase):
         self.assertEqual(302, login.status_code)
         with self.app.app_context():
             self.assertTrue(db.session.get(User, user_id).active)
+
+    @unittest.skipUnless(os.environ.get('TEST_POSTGRES_DATABASE_URL'),
+                         'Set TEST_POSTGRES_DATABASE_URL to a disposable PostgreSQL test database.')
+    def test_user_registration_persists_and_authenticates_on_postgres(self):
+        database_url = make_url(os.environ['TEST_POSTGRES_DATABASE_URL'])
+        if database_url.get_backend_name() != 'postgresql':
+            self.fail('TEST_POSTGRES_DATABASE_URL must point to PostgreSQL.')
+        if 'test' not in (database_url.database or '').casefold():
+            self.fail('PostgreSQL integration tests require a database name containing "test".')
+
+        schema = 'csrf_test_' + uuid4().hex
+        admin_engine = create_engine(database_url)
+        app = None
+        try:
+            with admin_engine.begin() as connection:
+                connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            isolated_url = database_url.update_query_dict({
+                'options': f'-csearch_path={schema},public',
+            }).render_as_string(hide_password=False)
+            app = create_app({**self.config, 'SQLALCHEMY_DATABASE_URI': isolated_url})
+            migration = app.test_cli_runner().invoke(args=['db', 'upgrade'])
+            if migration.exception:
+                raise migration.exception
+
+            admin_client = app.test_client()
+            self.assertEqual(302, self.login(client=admin_client).status_code)
+            create_form = {
+                'csrf_token': self.csrf('/users/new', admin_client),
+                'name': 'Gestor PostgreSQL',
+                'email': 'gestor-postgresql@example.test',
+                'role': 'manager',
+                'password': 'Senha-postgresql-teste-2026!',
+                'agenda_access': '1',
+                'reauth_password': ADMIN_PASSWORD,
+                'confirm': '1',
+            }
+            response = admin_client.post('/users/new', data=create_form)
+            self.assertEqual(302, response.status_code)
+
+            with app.app_context():
+                user = db.session.query(User).filter_by(
+                    email='gestor-postgresql@example.test').one()
+                user_id = user.id
+                self.assertTrue(check_password_hash(
+                    user.password_hash, 'Senha-postgresql-teste-2026!'))
+
+            user_client = app.test_client()
+            self.assertEqual(302, self.login(
+                username='gestor-postgresql@example.test',
+                password='Senha-postgresql-teste-2026!',
+                client=user_client,
+            ).status_code)
+            with app.app_context():
+                self.assertTrue(db.session.get(User, user_id).active)
+        finally:
+            if app is not None:
+                with app.app_context():
+                    db.session.remove()
+                    db.engine.dispose()
+            with admin_engine.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            admin_engine.dispose()
 
     def test_backend_role_permissions_cover_agenda_tasks_finance_vault_and_admin(self):
         self.admin()

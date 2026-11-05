@@ -2,7 +2,7 @@
 {% block title %}{{ 'Editar usuário' if editing else 'Novo usuário' }}{% endblock %}
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">ADMINISTRAÇÃO</p><h1>{{ 'Editar usuário' if editing else 'Novo usuário' }}</h1><p class="muted">Permissões devem ser concedidas conforme a necessidade de cada pessoa.</p></div><a class="button secondary" href="{{ url_for('users.index') }}">← Voltar</a></div>
-<form method="post" action="{{ url_for('users.new_user') if not editing else url_for('users.edit_user', user_id=managed_user.id) }}" class="panel form-panel form-stack" autocomplete="off">
+<form method="post" action="{{ url_for('users.new_user') if not editing else url_for('users.edit_user', user_id=managed_user.id) }}" referrerpolicy="strict-origin-when-cross-origin" class="panel form-panel form-stack" autocomplete="off">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="form-grid">
     <label>Nome<input name="name" value="{{ values.name }}" maxlength="200" required autofocus></label>
