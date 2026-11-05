@@ -115,7 +115,7 @@ Se aparecer `ModuleNotFoundError: No module named 'customtkinter'`, o arquivo fo
 - `app.py` e `webapp/`: versão web Flask com autenticação, interface responsiva e PostgreSQL.
 - `migrations/`: revisões versionadas do esquema hospedado; não reverta a migração inicial.
 
-As versões desktop e web são independentes: o desktop continua usando o SQLite local, enquanto a web exige PostgreSQL em `DATABASE_URL` e login do gestor. A publicação não envia nem importa automaticamente o banco local. Consulte [o guia do Render](docs/RENDER.md) para variáveis, migrações e comandos de deploy.
+As versões desktop e web são independentes: o desktop continua usando o SQLite local, enquanto a web exige PostgreSQL em `DATABASE_URL` e login individual. A publicação não envia nem importa automaticamente o banco local. A versão web migra a conta administrativa antiga uma vez e permite administrar perfis, acessos e sessões no menu **Usuários**; o cofre requer permissão explícita. Consulte [o guia do Render](docs/RENDER.md) para a migração, recuperação administrativa e comandos de deploy.
 
 Testes Flask isolados do banco pessoal:
 

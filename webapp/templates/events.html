@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Compromissos{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">SUA AGENDA</p><h1>Compromissos</h1><p class="muted">Acompanhe e gerencie seus compromissos.</p></div><a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a></div>
+<div class="page-heading"><div><p class="eyebrow">SUA AGENDA</p><h1>Compromissos</h1><p class="muted">Agenda organizacional compartilhada. A edição respeita seu perfil e a autoria do registro.</p></div>{% if can_write_agenda() %}<a class="button primary" href="{{ url_for('web.new_event') }}">＋ Novo compromisso</a>{% endif %}</div>
 <form class="filter-bar panel" method="get">
   {% if selected_date %}<input type="hidden" name="date" value="{{ selected_date }}">{% endif %}
   <label class="filter-search">Pesquisar<input type="search" name="q" value="{{ query }}" placeholder="Título, local, descrição..."></label>
@@ -18,11 +18,14 @@
     <td>{{ event.category }}</td><td><span class="priority {{ event.priority|lower }}">{{ event.priority }}</span></td>
     <td><span class="status {{ 'done' if event.completed else '' }}">{{ 'Concluído' if event.completed else 'Pendente' }}</span></td>
     <td><div class="actions">
+      <a class="small-action" href="{{ url_for('web.event_details', event_id=event.id) }}">Detalhes</a>
+      {% if can_edit_record(event) %}
       <a class="small-action" href="{{ url_for('web.edit_event', event_id=event.id) }}">Editar</a>
       <form method="post" action="{{ url_for('web.toggle_event', event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit">{{ 'Reabrir' if event.completed else 'Concluir' }}</button></form>
       <form method="post" action="{{ url_for('web.duplicate_event', event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit">Duplicar</button></form>
       <details class="reschedule"><summary class="small-action">Reagendar</summary><form method="post" action="{{ url_for('web.reschedule_event', event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Data<input type="date" name="event_date" value="{{ event.event_date }}" required></label><label>Início<input type="time" name="event_time" value="{{ event.event_time }}" required></label><label>Término<input type="time" name="end_time" value="{{ event.end_time }}"></label><button class="button primary" type="submit">Salvar</button></form></details>
       <form method="post" action="{{ url_for('web.delete_event', event_id=event.id) }}" data-confirm="Deseja realmente excluir o compromisso {{ event.title }}?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action danger-text" type="submit">Excluir</button></form>
+      {% endif %}
     </div></td>
   </tr>{% endfor %}
   </tbody></table></div>

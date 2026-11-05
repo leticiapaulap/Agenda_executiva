@@ -122,6 +122,11 @@ class WebCatalogSecurityTests(unittest.TestCase):
         client = client or self.client
         client.post('/login', data={'username': 'test', 'password': 'test-password',
                                     'csrf_token': self.token(client=client)})
+        with self.app.app_context():
+            from webapp.models import User
+            user = db.session.query(User).filter_by(email='test').one()
+            user.vault_access = True
+            db.session.commit()
 
     def test_routes_auth_csrf_and_no_reveal_api(self):
         self.assertEqual(302, self.client.get('/vault').status_code)
@@ -190,8 +195,9 @@ class AdditiveWebMigrationTests(unittest.TestCase):
             self.assertIn('CREATE TABLE bills', result.output)
             self.assertIn('CREATE TABLE access_catalog', result.output)
             self.assertIn('0003_access_catalog', result.output)
+            self.assertIn('CREATE TABLE users', result.output)
+            self.assertIn('ALTER TABLE events', result.output)
             self.assertNotIn('DROP TABLE', result.output)
-            self.assertNotIn('ALTER TABLE events', result.output)
         finally:
             with app.app_context():
                 db.session.remove()
@@ -205,21 +211,27 @@ class AdditiveWebMigrationTests(unittest.TestCase):
                 result = app.test_cli_runner().invoke(args=['db', 'upgrade', '0001_create_agenda_tables'])
                 if result.exception:
                     raise result.exception
-                from datetime import date, time
-                from webapp.models import Event
+                from sqlalchemy import text
                 with app.app_context():
-                    event = Event(id=77, title='Original', event_date=date(2026, 11, 10), event_time=time(9, 0),
-                                  end_time=time(10, 0), category='Reunião', location='Sala', notes='Nota',
-                                  reminder_minutes=15, completed=0, description='Descrição', priority='Alta')
-                    db.session.add(event)
+                    db.session.execute(text('''INSERT INTO events
+                        (id,title,event_date,event_time,end_time,category,location,notes,reminder_minutes,
+                         completed,description,priority)
+                        VALUES (77,'Original','2026-11-10','09:00:00','10:00:00','Reunião','Sala','Nota',
+                                15,0,'Descrição','Alta')'''))
                     db.session.commit()
-                    before = {col.name: getattr(event, col.name) for col in Event.__table__.columns}
+                    before = dict(db.session.execute(text('''SELECT id,title,event_date,event_time,end_time,
+                        category,location,notes,reminder_minutes,completed,description,priority
+                        FROM events WHERE id=77''')).mappings().one())
                 result = app.test_cli_runner().invoke(args=['db', 'upgrade'])
                 if result.exception:
                     raise result.exception
                 with app.app_context():
-                    event = db.session.get(Event, 77)
-                    self.assertEqual(before, {col.name: getattr(event, col.name) for col in Event.__table__.columns})
+                    after = dict(db.session.execute(text('''SELECT id,title,event_date,event_time,end_time,
+                        category,location,notes,reminder_minutes,completed,description,priority
+                        FROM events WHERE id=77''')).mappings().one())
+                    self.assertEqual(before, after)
+                    self.assertIsNone(db.session.execute(
+                        text('SELECT owner_id FROM events WHERE id=77')).scalar_one())
                     from sqlalchemy import inspect
                     tables = inspect(db.engine).get_table_names()
                     self.assertTrue({'access_catalog', 'bills', 'bill_series', 'bill_payments'}.issubset(tables))

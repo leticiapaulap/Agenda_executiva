@@ -4,21 +4,18 @@ from datetime import date, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
 from flask import Flask, redirect, request, url_for
-from flask_login import LoginManager, UserMixin, current_user
+from flask_login import LoginManager, current_user
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .models import db
+from .models import User, db
+from .permissions import can_edit_record, can_edit_task, can_read_agenda, can_read_finance, can_write_agenda
 
 
 csrf = CSRFProtect()
 login_manager = LoginManager()
 migrate = Migrate()
-
-
-class Manager(UserMixin):
-    id = 'manager'
 
 
 def _database_url():
@@ -75,8 +72,6 @@ def create_app(test_config=None):
     if not app.config.get('TESTING'):
         if not app.config.get('SECRET_KEY'):
             raise RuntimeError('Configure uma SECRET_KEY forte nas variáveis de ambiente.')
-        if not app.config.get('ADMIN_USERNAME') or not app.config.get('ADMIN_PASSWORD_HASH'):
-            raise RuntimeError('Configure ADMIN_USERNAME e ADMIN_PASSWORD_HASH para restringir o acesso.')
     if app.config.get('TESTING') and not app.config.get('SECRET_KEY'):
         app.config['SECRET_KEY'] = 'test-secret-key-not-for-production'
     if app.config.get('TESTING'):
@@ -95,11 +90,35 @@ def create_app(test_config=None):
 
     @login_manager.user_loader
     def load_user(user_id):
-        return Manager() if user_id == 'manager' else None
+        try:
+            user_uuid, version = user_id.rsplit(':', 1)
+            version = int(version)
+        except (AttributeError, ValueError):
+            return None
+        user = db.session.get(User, user_uuid)
+        return user if user and user.active and user.session_version == version else None
 
     @app.context_processor
     def inject_csrf_token():
-        return {'csrf_token': generate_csrf, 'today_label': date.today().strftime('%d/%m/%Y')}
+        def home_url():
+            if can_read_agenda():
+                return url_for('web.dashboard')
+            if can_read_finance():
+                return url_for('finance.bills')
+            if current_user.is_authenticated and current_user.can_access_vault:
+                return url_for('catalog.entries')
+            return url_for('web.login')
+
+        return {
+            'csrf_token': generate_csrf,
+            'today_label': date.today().strftime('%d/%m/%Y'),
+            'home_url': home_url,
+            'can_edit_record': can_edit_record,
+            'can_edit_task': can_edit_task,
+            'can_read_agenda': can_read_agenda,
+            'can_read_finance': can_read_finance,
+            'can_write_agenda': can_write_agenda,
+        }
 
     @app.after_request
     def set_security_headers(response):
@@ -121,13 +140,16 @@ def create_app(test_config=None):
         if request.endpoint and request.endpoint != 'static' and not current_user.is_authenticated:
             if request.endpoint != 'web.login':
                 return redirect(url_for('web.login', next=request.full_path if request.query_string else request.path))
-
     from .routes import bp
     app.register_blueprint(bp)
+    from .user_routes import bp as users_bp
+    app.register_blueprint(users_bp)
     from .catalog import bp as catalog_bp
     app.register_blueprint(catalog_bp)
     from .vault_commands import register_commands
     register_commands(app)
     from .finance_routes import bp as finance_bp
     app.register_blueprint(finance_bp)
+    from .auth import register_recovery_command
+    register_recovery_command(app)
     return app

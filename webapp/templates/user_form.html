@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Editar usuário' if editing else 'Novo usuário' }}{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">ADMINISTRAÇÃO</p><h1>{{ 'Editar usuário' if editing else 'Novo usuário' }}</h1><p class="muted">Permissões devem ser concedidas conforme a necessidade de cada pessoa.</p></div><a class="button secondary" href="{{ url_for('users.index') }}">← Voltar</a></div>
+<form method="post" class="panel form-panel form-stack" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-grid">
+    <label>Nome<input name="name" value="{{ values.name }}" maxlength="200" required autofocus></label>
+    <label>E-mail / login<input name="email" value="{{ values.email }}" maxlength="254" required autocomplete="username"></label>
+    <label>Perfil<select name="role">{% for key, label in roles.items() %}<option value="{{ key }}" {{ 'selected' if values.role == key }}>{{ label }}</option>{% endfor %}</select></label>
+    {% if not editing %}<label>Senha inicial<input type="password" name="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>{% endif %}
+    <label class="vault-checkbox span-2"><input type="checkbox" name="agenda_access" value="1" {{ 'checked' if values.agenda_access }}>Acesso à agenda e às tarefas da organização</label>
+    <label class="vault-checkbox span-2"><input type="checkbox" name="finance_access" value="1" {{ 'checked' if values.finance_access }}>Acesso às contas e aos comprovantes autorizados</label>
+    <label class="vault-checkbox span-2"><input type="checkbox" name="vault_access" value="1" {{ 'checked' if values.vault_access }}>Autorização específica para o cofre (não disponível ao perfil Leitor)</label>
+  </div>
+  <p class="muted">Gestores editam seus próprios compromissos e podem criar e editar tarefas. Leitores só consultam informações autorizadas. A permissão do cofre não é automática, nem mesmo para administradores. Alterações de credenciais e permissões encerram sessões anteriores.</p>
+  {% if editing %}<p class="muted">Para alterar a senha ou o status, use as ações específicas na lista de usuários.</p>{% endif %}
+  <label>Sua senha para confirmar a operação<input type="password" name="reauth_password" autocomplete="current-password" maxlength="1024" required></label>
+  <label class="vault-checkbox"><input type="checkbox" name="confirm" value="1" required>Confirmo o cadastro ou a alteração das permissões deste usuário.</label>
+  <div class="form-actions"><a class="button secondary" href="{{ url_for('users.index') }}">Cancelar</a><button class="button primary">{{ 'Salvar alterações' if editing else 'Cadastrar usuário' }}</button></div>
+</form>
+{% endblock %}

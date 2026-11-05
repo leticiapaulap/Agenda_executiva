@@ -18,8 +18,8 @@
     {% endwith %}
     <form method="post" class="form-stack">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>Usuário<input name="username" autocomplete="username" required autofocus maxlength="100"></label>
-      <label>Senha<input type="password" name="password" autocomplete="current-password" required></label>
+      <label>E-mail / login<input name="username" autocomplete="username" required autofocus maxlength="254"></label>
+      <label>Senha<input type="password" name="password" autocomplete="current-password" required maxlength="1024"></label>
       <button class="button primary full" type="submit">Entrar com segurança</button>
     </form>
     <p class="login-foot">Acesso protegido · Agenda Executiva</p>

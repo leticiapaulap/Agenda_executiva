@@ -1,4 +1,4 @@
-"""Contas privadas do gestor: formulários protegidos por login e CSRF global."""
+"""Organizational accounts protected by per-user permissions and CSRF."""
 from datetime import date
 import mimetypes
 
@@ -10,6 +10,7 @@ from agenda.finance import FinanceService
 from agenda.receipts import ReceiptStore
 from .finance_repository import WebFinanceRepository
 from .models import db
+from .permissions import can_read_finance, can_write_finance
 
 
 bp = Blueprint('finance', __name__)
@@ -18,6 +19,12 @@ bp = Blueprint('finance', __name__)
 @bp.before_request
 @login_required
 def protect_finance():
+    if not can_read_finance():
+        abort(403)
+    if request.method != 'GET' and not can_write_finance():
+        abort(403)
+    if request.endpoint == 'finance.new_bill' and not can_write_finance():
+        abort(403)
     return None
 
 

@@ -7,14 +7,14 @@
     <div class="panel-heading"><div><p class="eyebrow">LISTA</p><h2>Suas tarefas</h2></div></div>
     <form class="inline-filters" method="get"><input type="search" name="q" value="{{ query }}" placeholder="Pesquisar tarefa"><select name="status"><option>Todos</option><option {{ 'selected' if status == 'Pendentes' }}>Pendentes</option><option {{ 'selected' if status == 'Concluídas' }}>Concluídas</option></select><select name="priority"><option>Todas</option>{% for item in priorities %}<option {{ 'selected' if priority == item }}>{{ item }}</option>{% endfor %}</select><button class="button secondary" type="submit">Filtrar</button></form>
     {% if tasks %}<div class="record-list">{% for item in tasks %}
-      <article class="task-row"><form method="post" action="{{ url_for('web.toggle_task', task_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="check-button {{ 'checked' if item.completed }}" aria-label="Alternar {{ item.title }}">{{ '✓' if item.completed else '○' }}</button></form>
-        <div class="record-main"><a class="record-title {{ 'completed-text' if item.completed }}" href="{{ url_for('web.tasks', edit=item.id) }}">{{ item.title }}</a><span>{{ item.description or 'Sem descrição' }}{% if item.due_date %} · Prazo {{ item.due_date[8:10] }}/{{ item.due_date[5:7] }}/{{ item.due_date[:4] }}{% endif %}</span></div>
+      <article class="task-row">{% if can_edit_task(item) %}<form method="post" action="{{ url_for('web.toggle_task', task_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="check-button {{ 'checked' if item.completed }}" aria-label="Alternar {{ item.title }}">{{ '✓' if item.completed else '○' }}</button></form>{% endif %}
+        <div class="record-main"><a class="record-title {{ 'completed-text' if item.completed }}" href="{{ url_for('web.tasks', edit=item.id) if can_edit_task(item) else url_for('web.task_details', task_id=item.id) }}">{{ item.title }}</a><span>{{ item.description or 'Sem descrição' }}{% if item.due_date %} · Prazo {{ item.due_date[8:10] }}/{{ item.due_date[5:7] }}/{{ item.due_date[:4] }}{% endif %}</span></div>
         <span class="priority {{ item.priority|lower }}">{{ item.priority }}</span>
-        <form method="post" action="{{ url_for('web.delete_task', task_id=item.id) }}" data-confirm="Deseja excluir a tarefa {{ item.title }}?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="icon-button danger-text" aria-label="Excluir {{ item.title }}">×</button></form>
+        {% if current_user.role == 'admin' %}<form method="post" action="{{ url_for('web.delete_task', task_id=item.id) }}" data-confirm="Deseja excluir a tarefa {{ item.title }}?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="icon-button danger-text" aria-label="Excluir {{ item.title }}">×</button></form>{% endif %}
       </article>
     {% endfor %}</div>{% else %}<div class="empty-state"><span>✓</span><strong>Nenhuma tarefa encontrada</strong><p>Crie sua primeira tarefa usando o formulário.</p></div>{% endif %}
   </section>
-  <section class="panel task-editor"><div class="panel-heading"><div><p class="eyebrow">ORGANIZE-SE</p><h2>{{ 'Editar tarefa' if request.args.get('edit') else 'Nova tarefa' }}</h2></div></div>
+  {% if can_write_agenda() %}<section class="panel task-editor"><div class="panel-heading"><div><p class="eyebrow">ORGANIZE-SE</p><h2>{{ 'Editar tarefa' if request.args.get('edit') else 'Nova tarefa' }}</h2></div></div>
     <form method="post" class="form-stack"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="task_id" value="{{ task.id or '' }}">
       <label>Título<input name="title" value="{{ task.title }}" maxlength="200" required></label>
       <label>Descrição<textarea name="description" rows="4" maxlength="5000">{{ task.description }}</textarea></label>
@@ -23,6 +23,6 @@
       <button class="button primary full" type="submit">{{ 'Salvar alterações' if request.args.get('edit') else 'Adicionar tarefa' }}</button>
       {% if request.args.get('edit') %}<a class="button secondary full" href="{{ url_for('web.tasks') }}">Cancelar edição</a>{% endif %}
     </form>
-  </section>
+  </section>{% endif %}
 </div>
 {% endblock %}

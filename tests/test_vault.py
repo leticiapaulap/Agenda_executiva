@@ -245,6 +245,11 @@ class WebVaultTests(unittest.TestCase):
         response = client.post('/login', data={'username': 'test', 'password': ADMIN_PASSWORD,
                                                'csrf_token': self.token(client=client)})
         self.assertEqual(302, response.status_code)
+        with self.app.app_context():
+            from webapp.models import User
+            user = db.session.query(User).filter_by(email='test').one()
+            user.vault_access = True
+            db.session.commit()
 
     def seed(self, **extra):
         with self.app.app_context():

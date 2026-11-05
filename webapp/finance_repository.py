@@ -30,9 +30,8 @@ class WebFinanceRepository:
     @contextmanager
     def transaction(self):
         try:
-            # A agenda usa um único gestor. Serializar as operações financeiras
-            # evita corrida entre geração mensal, edição de série e pagamento,
-            # inclusive quando o servidor possui mais de um worker.
+            # Serialize shared financial mutations across all authorized users
+            # and workers, including monthly generation, edits and payments.
             if db.session.get_bind().dialect.name == 'postgresql':
                 db.session.execute(text('SELECT pg_advisory_xact_lock(714288402)'))
             yield self

@@ -1,18 +1,17 @@
 """Directory and opt-in encrypted personal vault. Never serialize ciphertext."""
-import time
 from uuid import uuid4
 
 from flask import (Blueprint, abort, current_app, flash, jsonify, redirect,
                    render_template, request, url_for)
-from flask_login import login_fresh, login_required
+from flask_login import current_user, login_fresh, login_required
 from sqlalchemy import CheckConstraint, case, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from werkzeug.security import check_password_hash
 
 from agenda.catalog import AccessCatalog
 from agenda.vault import VaultCipher, VaultError
-from .models import LoginAttempt, db
+from .auth import verify_current_password
+from .models import db
 
 
 class AccessEntry(db.Model):
@@ -87,41 +86,19 @@ class WebCatalogRepository:
 bp = Blueprint('catalog', __name__)
 
 
+@bp.before_request
+def require_vault_permission():
+    if not current_user.is_authenticated or not current_user.can_access_vault:
+        abort(403)
+
+
 def catalog_service():
     return AccessCatalog(WebCatalogRepository(), VaultCipher(current_app.config))
 
 
 def reauthenticate(password):
-    """Persistent account-wide limiter. Each operation checks again."""
-    if not login_fresh():
-        return 401, 'Entre novamente na agenda antes de acessar a senha.'
-    now = int(time.time())
-    dialect = db.session.get_bind().dialect.name
-    insert = pg_insert if dialect == 'postgresql' else sqlite_insert
-    db.session.execute(insert(LoginAttempt).values(client_key='vault:manager', failures=0,
-                        window_started_at=now, locked_until=0).on_conflict_do_nothing(index_elements=['client_key']))
-    attempt = db.session.scalar(select(LoginAttempt).where(
-        LoginAttempt.client_key == 'vault:manager').with_for_update().execution_options(populate_existing=True))
-    if attempt.locked_until > now:
-        db.session.commit()
-        return 429, 'Muitas tentativas. Aguarde 15 minutos.'
-    if now - attempt.window_started_at >= 900:
-        attempt.failures, attempt.window_started_at, attempt.locked_until = 0, now, 0
-    try:
-        valid = bool(isinstance(password, str) and 0 < len(password) <= 1024 and
-                     check_password_hash(current_app.config['ADMIN_PASSWORD_HASH'], password))
-    except (ValueError, TypeError):
-        valid = False
-    if valid:
-        attempt.failures, attempt.locked_until, attempt.window_started_at = 0, 0, now
-        db.session.commit()
-        return None
-    attempt.failures += 1
-    if attempt.failures >= 5:
-        attempt.locked_until = now + 900
-    locked = attempt.locked_until > now
-    db.session.commit()
-    return (429, 'Muitas tentativas. Aguarde 15 minutos.') if locked else (401, 'Reautenticação inválida.')
+    """Reauthenticate the current user before returning or changing a secret."""
+    return verify_current_password(password, namespace='vault')
 
 
 @bp.after_request

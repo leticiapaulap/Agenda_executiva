@@ -3,11 +3,14 @@ from datetime import date
 from sqlalchemy import case, select
 
 from .models import Event, Task, db
+from .permissions import (new_record_owner, require_agenda_read, require_record_write,
+                         require_task_write)
 
 
 def _event_dict(event):
     return {
         'id': event.id,
+        'owner_id': event.owner_id,
         'title': event.title,
         'event_date': event.event_date.isoformat(),
         'event_time': event.event_time.strftime('%H:%M'),
@@ -25,6 +28,7 @@ def _event_dict(event):
 def _task_dict(task):
     return {
         'id': task.id,
+        'owner_id': task.owner_id,
         'title': task.title,
         'description': task.description,
         'due_date': task.due_date.isoformat() if task.due_date else '',
@@ -38,6 +42,7 @@ class PostgresRepository:
 
     def list_events(self, search='', start=None, end=None, status='Todos',
                     category='Todas', priority='Todas'):
+        require_agenda_read()
         statement = select(Event)
         if start:
             statement = statement.where(Event.event_date >= date.fromisoformat(str(start)))
@@ -60,6 +65,7 @@ class PostgresRepository:
         return rows
 
     def get_event(self, event_id):
+        require_agenda_read()
         event = db.session.get(Event, event_id)
         return _event_dict(event) if event else None
 
@@ -67,6 +73,9 @@ class PostgresRepository:
         event = db.session.get(Event, id) if id is not None else Event()
         if event is None:
             raise ValueError('O compromisso não foi encontrado. Atualize a agenda.')
+        require_record_write(event if id is not None else None)
+        if id is None:
+            event.owner_id = new_record_owner()
         fields = ('title', 'event_date', 'event_time', 'category', 'location',
                   'notes', 'reminder_minutes', 'completed', 'description', 'end_time', 'priority')
         from datetime import date as date_type, time
@@ -87,15 +96,18 @@ class PostgresRepository:
         event = db.session.get(Event, event_id)
         if event is None:
             raise ValueError('O compromisso não foi encontrado. Atualize a agenda.')
+        require_record_write(event)
         db.session.delete(event)
 
     def toggle_event(self, event_id):
         event = db.session.get(Event, event_id)
         if event is None:
             raise ValueError('O compromisso não foi encontrado. Atualize a agenda.')
+        require_record_write(event)
         event.completed = 0 if event.completed else 1
 
     def list_tasks(self, search='', status='Pendentes', priority='Todas'):
+        require_agenda_read()
         statement = select(Task)
         if status in ('Pendentes', 'Pendente'):
             statement = statement.where(Task.completed == 0)
@@ -112,6 +124,7 @@ class PostgresRepository:
                 (row['title'] + ' ' + row['description']).casefold()]
 
     def get_task(self, task_id):
+        require_agenda_read()
         task = db.session.get(Task, task_id)
         return _task_dict(task) if task else None
 
@@ -119,6 +132,9 @@ class PostgresRepository:
         task = db.session.get(Task, id) if id is not None else Task()
         if task is None:
             raise ValueError('A tarefa não foi encontrada. Atualize a agenda.')
+        require_task_write()
+        if id is None:
+            task.owner_id = new_record_owner()
         from datetime import date as date_type
         for field in ('title', 'description', 'priority', 'completed'):
             if field in data:
@@ -133,10 +149,12 @@ class PostgresRepository:
         task = db.session.get(Task, task_id)
         if task is None:
             raise ValueError('A tarefa não foi encontrada. Atualize a agenda.')
+        require_task_write()
         task.completed = 0 if task.completed else 1
 
     def delete_task(self, task_id):
         task = db.session.get(Task, task_id)
         if task is None:
             raise ValueError('A tarefa não foi encontrada. Atualize a agenda.')
+        require_record_write(task)
         db.session.delete(task)

@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}Usuários{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">ADMINISTRAÇÃO</p><h1>Usuários</h1><p class="muted">Gerencie pessoas, permissões e acesso à agenda.</p></div><a class="button primary" href="{{ url_for('users.new_user') }}">＋ Novo usuário</a></div>
+<div class="stat-grid">
+  <article class="stat-card"><span class="stat-icon blue">♙</span><span class="stat-label">Usuários cadastrados</span><strong>{{ users|length }}</strong></article>
+  <article class="stat-card"><span class="stat-icon violet">✓</span><span class="stat-label">Usuários ativos</span><strong>{{ active_count }}</strong></article>
+  <article class="stat-card"><span class="stat-icon amber">◷</span><span class="stat-label">Usuários inativos</span><strong>{{ users|length - active_count }}</strong></article>
+  <article class="stat-card"><span class="stat-icon blue">⚙</span><span class="stat-label">Administradores ativos</span><strong>{{ admin_count }}</strong></article>
+</div>
+<p class="muted">A agenda é compartilhada somente com pessoas autorizadas. A permissão do cofre é concedida separadamente. <a class="text-link" href="{{ url_for('users.audit') }}">Consultar auditoria</a></p>
+<section class="panel table-panel"><div class="table-wrap"><table>
+  <thead><tr><th>Usuário</th><th>Perfil</th><th>Permissões</th><th>Status</th><th>Criação / último acesso</th><th>Ações</th></tr></thead>
+  <tbody>{% for user in users %}<tr>
+    <td><strong>{{ user.name }}</strong><small>{{ user.email }}</small></td>
+    <td>{{ roles[user.role] }}</td>
+    <td>{% if user.agenda_access %}Agenda{% endif %}{% if user.finance_access %} · Contas{% endif %}{% if user.vault_access and user.role != 'reader' %} · Cofre{% endif %}{% if not user.agenda_access and not user.finance_access and not user.vault_access %}Sem concessões{% endif %}</td>
+    <td><span class="status {{ 'done' if user.active }}">{{ 'Ativo' if user.active else 'Inativo' }}</span></td>
+    <td>{{ user.created_at.strftime('%d/%m/%Y') if user.created_at else '—' }}<small>{{ user.last_login.strftime('%d/%m/%Y %H:%M UTC') if user.last_login else 'Ainda não acessou' }}</small></td>
+    <td><div class="actions"><a class="small-action" href="{{ url_for('users.edit_user', user_id=user.id) }}">Editar</a><a class="small-action" href="{{ url_for('users.status_user', user_id=user.id) }}">{{ 'Desativar' if user.active else 'Ativar' }}</a><a class="small-action" href="{{ url_for('users.reset_user_password', user_id=user.id) }}">Redefinir senha</a></div></td>
+  </tr>{% endfor %}</tbody>
+</table></div></section>
+{% endblock %}

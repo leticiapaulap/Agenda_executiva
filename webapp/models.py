@@ -1,8 +1,80 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import CheckConstraint, Index
+from flask_login import UserMixin
+from datetime import datetime, timezone
+from uuid import uuid4
+from sqlalchemy import CheckConstraint, Index, func
 
 
 db = SQLAlchemy()
+
+
+def utc_now():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = 'users'
+    __table_args__ = (
+        CheckConstraint("role IN ('admin','manager','reader')", name='ck_users_role'),
+        CheckConstraint('session_version >= 1', name='ck_users_session_version'),
+        CheckConstraint("role <> 'reader' OR NOT vault_access", name='ck_users_reader_vault'),
+    )
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    name = db.Column(db.String(200), nullable=False)
+    email = db.Column(db.String(254), nullable=False, unique=True)
+    password_hash = db.Column(db.Text, nullable=False)
+    role = db.Column(db.String(20), nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    session_version = db.Column(db.Integer, nullable=False, default=1)
+    agenda_access = db.Column(db.Boolean, nullable=False, default=False)
+    finance_access = db.Column(db.Boolean, nullable=False, default=False)
+    vault_access = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    last_login = db.Column(db.DateTime, nullable=True)
+
+    def get_id(self):
+        return f'{self.id}:{self.session_version}'
+
+    @property
+    def is_active(self):
+        return bool(self.active)
+
+    @property
+    def is_admin(self):
+        return bool(self.active and self.role == 'admin')
+
+    @property
+    def can_view_agenda(self):
+        return bool(self.active and (self.role == 'admin' or self.agenda_access))
+
+    @property
+    def can_view_finance(self):
+        return bool(self.active and (self.role == 'admin' or self.finance_access))
+
+    @property
+    def can_access_vault(self):
+        return bool(self.active and self.role != 'reader' and self.vault_access)
+
+
+Index('uq_users_email_lower', func.lower(User.email), unique=True)
+
+
+class AuditLog(db.Model):
+    __tablename__ = 'audit_logs'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    actor_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=True)
+    target_user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=True)
+    action = db.Column(db.String(80), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+
+class SecurityState(db.Model):
+    __tablename__ = 'security_state'
+    __table_args__ = (CheckConstraint('id = 1', name='ck_security_state_singleton'),)
+    id = db.Column(db.Integer, primary_key=True)
+    bootstrap_complete = db.Column(db.Boolean, nullable=False, default=False)
+    # An actual update also serializes mutations on SQLite (FOR UPDATE has no effect there).
+    lock_version = db.Column(db.Integer, nullable=False, default=0)
 
 
 class Event(db.Model):
@@ -24,6 +96,7 @@ class Event(db.Model):
     description = db.Column(db.Text, nullable=False, default='')
     end_time = db.Column(db.Time, nullable=True)
     priority = db.Column(db.String(20), nullable=False, default='Normal')
+    owner_id = db.Column(db.String(36), db.ForeignKey('users.id', name='fk_events_owner_id_users'), nullable=True)
 
 
 class Task(db.Model):
@@ -39,6 +112,7 @@ class Task(db.Model):
     due_date = db.Column(db.Date, nullable=True)
     priority = db.Column(db.String(20), nullable=False, default='Normal')
     completed = db.Column(db.Integer, nullable=False, default=0)
+    owner_id = db.Column(db.String(36), db.ForeignKey('users.id', name='fk_tasks_owner_id_users'), nullable=True)
 
 
 class LoginAttempt(db.Model):

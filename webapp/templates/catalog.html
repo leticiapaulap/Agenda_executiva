@@ -32,7 +32,7 @@
       <label>Tipo de acesso<select name="is_corporate"><option value="1" {{ 'selected' if not entry or entry.is_corporate }}>Corporativo / somente catálogo</option><option value="0" {{ 'selected' if entry and not entry.is_corporate }}>Pessoal · armazenamento autorizado</option></select></label>
       <label>{{ 'Nova senha (opcional; em branco mantém a atual)' if entry.has_password else 'Senha (opcional, somente acesso pessoal)' }}<input type="password" name="password" autocomplete="new-password" maxlength="4096" {{ 'disabled' if not vault_available }}></label>
       {% if entry.has_password %}<label class="vault-checkbox"><input type="checkbox" name="clear_password" value="1" {{ 'disabled' if not vault_available }}>Remover explicitamente a senha armazenada</label>{% endif %}
-      {% if vault_available %}<label>Senha do gestor (ao definir ou remover senha)<input type="password" name="reauth_password" autocomplete="current-password" maxlength="1024"></label>{% endif %}
+      {% if vault_available %}<label>Sua senha (ao definir ou remover senha)<input type="password" name="reauth_password" autocomplete="current-password" maxlength="1024"></label>{% endif %}
       <button class="button primary">Salvar acesso</button>{% if entry.id %}<a class="button secondary" href="{{ url_for('catalog.entries') }}">Cancelar</a>{% endif %}
     </form>
   </section>
@@ -41,7 +41,7 @@
 <dialog class="vault-dialog" id="vault-auth" data-csrf="{{ csrf_token() }}">
   <form id="vault-auth-form" class="form-stack" autocomplete="off">
     <h2>Confirmar identidade</h2><p class="muted">Informe a senha do gestor para esta operação. A visualização é ocultada após 30 segundos.</p>
-    <label>Senha do gestor<input id="vault-reauth-password" type="password" autocomplete="current-password" maxlength="1024" required></label>
+    <label>Sua senha<input id="vault-reauth-password" type="password" autocomplete="current-password" maxlength="1024" required></label>
     <p class="muted" id="vault-auth-error" role="alert"></p>
     <div class="form-actions"><button class="button secondary" type="button" id="vault-auth-cancel">Cancelar</button><button class="button primary" type="submit">Confirmar</button></div>
   </form>
