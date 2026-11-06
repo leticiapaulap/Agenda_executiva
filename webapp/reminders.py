@@ -31,6 +31,8 @@ def event_alert(event, now):
         tzinfo=SAO_PAULO,
     )
     alert_at = start - timedelta(minutes=event['reminder_minutes'])
+    if event['reminder_minutes'] == 0:
+        return alert_at if start <= now < start + timedelta(minutes=1) else None
     if not alert_at <= now <= start:
         return None
     return alert_at

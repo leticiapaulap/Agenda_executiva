@@ -469,7 +469,7 @@ def delete_task(task_id):
 
 
 @bp.get('/reminders')
-def reminders():
+def reminders(manual_errors=None):
     if not (current_user.can_view_agenda or can_read_finance()):
         abort(403)
     now = local_now()
@@ -481,6 +481,7 @@ def reminders():
     edit_id = request.args.get('edit', '')
     editing_reminder = None
     if edit_id:
+        require_agenda_read()
         editing_reminder = db.session.get(ManualReminder, edit_id)
         if not editing_reminder or editing_reminder.owner_id != current_user.id:
             abort(404)
@@ -519,11 +520,12 @@ def reminders():
             task_due = task_alert(task, today)
             if task_due is None and not (selected_filter == 'completed' and task['completed']):
                 continue
-            due_at = datetime.combine(task_due or today, datetime_time(9), SAO_PAULO)
+            original_due = date.fromisoformat(task['due_date']) if task['due_date'] else today
+            due_at = datetime.combine(task_due or original_due, datetime_time(9), SAO_PAULO)
             alerts.append({
                 'type': 'task', 'item_id': str(task['id']), 'title': task['title'],
                 'priority': task['priority'], 'due_at': due_at,
-                'due_date': task_due or today, 'completed': bool(task['completed']),
+                'due_date': task_due or original_due, 'completed': bool(task['completed']),
                 'url': url_for('web.task_details', task_id=task['id']),
                 'actions': can_edit_task(task),
             })
@@ -548,8 +550,10 @@ def reminders():
                     'url': url_for('finance.edit_bill', bill_id=bill['id']),
                     'actions': can_write_finance(),
                 })
-    manual_rows = db.session.scalars(select(ManualReminder).where(
-        ManualReminder.owner_id == current_user.id)).all()
+    manual_rows = []
+    if current_user.can_view_agenda:
+        manual_rows = db.session.scalars(select(ManualReminder).where(
+            ManualReminder.owner_id == current_user.id)).all()
     for reminder in manual_rows:
         due_at = from_utc_naive(reminder.due_at)
         if not (reminder.completed or due_at.date() <= today + timedelta(days=7)):
@@ -563,6 +567,7 @@ def reminders():
             if reminder.snoozed_until else None,
         })
     visible = []
+    active_count = 0
     for alert in alerts:
         state = states.get((alert['type'], alert['item_id']))
         alert['is_read'] = alert.get('is_read', state.is_read if state else False)
@@ -571,6 +576,10 @@ def reminders():
             if state and state.snoozed_until else None)
         if alert['snoozed_until'] and alert['snoozed_until'] > now:
             continue
+        if not alert['completed']:
+            active_count += 1
+        is_overdue = (alert['due_at'] < now if alert['type'] == 'manual'
+                      else alert['due_date'] < today)
         if selected_filter == 'completed':
             if not alert['completed']:
                 continue
@@ -580,19 +589,20 @@ def reminders():
             continue
         elif selected_filter == 'upcoming' and not today < alert['due_date'] <= today + timedelta(days=7):
             continue
-        elif selected_filter == 'overdue' and alert['due_date'] >= today:
+        elif selected_filter == 'overdue' and not is_overdue:
             continue
         alert['bucket'] = ('completed' if alert['completed'] else
-                           'overdue' if alert['due_date'] < today else
+                           'overdue' if is_overdue else
                            'today' if alert['due_date'] == today else 'upcoming')
         visible.append(alert)
     visible.sort(key=lambda alert: (alert['due_at'], alert['priority'], alert['title'].casefold()))
     return render_template('reminders.html', alerts=visible, today=today,
                            selected_filter=selected_filter,
-                           active_count=sum(not alert['completed'] for alert in visible),
+                           active_count=active_count,
                            can_add_reminder=current_user.can_view_agenda,
                            priorities=PRIORITIES, manual_form=manual_form,
-                           show_reminder_modal=show_reminder_modal)
+                           show_reminder_modal=show_reminder_modal,
+                           manual_errors=manual_errors or {})
 
 
 @bp.post('/reminders/manual')
@@ -602,14 +612,27 @@ def create_manual_reminder():
     title = request.form.get('title', '').strip()
     notes = request.form.get('notes', '').strip()
     priority = request.form.get('priority', 'Normal')
+    errors = {}
+    if not title or len(title) > 200:
+        errors['title'] = 'Informe um título com até 200 caracteres.'
+    if len(notes) > 5000:
+        errors['notes'] = 'As observações devem ter até 5.000 caracteres.'
+    if priority not in PRIORITIES:
+        errors['priority'] = 'Selecione uma prioridade válida.'
     try:
-        if not title or len(title) > 200 or len(notes) > 5000:
-            raise ValueError('Informe um título válido e observações de até 5.000 caracteres.')
-        if priority not in PRIORITIES:
-            raise ValueError('Selecione uma prioridade válida.')
-        due_at = datetime.fromisoformat(request.form.get('due_at', ''))
+        raw_due_at = request.form.get('due_at', '')
+        if 'T' not in raw_due_at:
+            raise ValueError
+        due_at = datetime.fromisoformat(raw_due_at)
         if due_at.tzinfo is None:
             due_at = due_at.replace(tzinfo=SAO_PAULO)
+        if not 1900 <= due_at.astimezone(SAO_PAULO).year <= 2199:
+            raise ValueError
+    except (ValueError, OverflowError):
+        errors['due_at'] = 'Informe data e horário válidos, entre 1900 e 2199.'
+    if errors:
+        return reminders(manual_errors=errors), 400
+    try:
         reminder = db.session.get(ManualReminder, reminder_id) if reminder_id else None
         if reminder_id and (not reminder or reminder.owner_id != current_user.id):
             abort(404)
@@ -623,24 +646,26 @@ def create_manual_reminder():
         db.session.commit()
         flash('Lembrete atualizado com sucesso.' if reminder_id else
               'Lembrete criado com sucesso.', 'success')
+        local_due = due_at.astimezone(SAO_PAULO).date()
+        if not reminder.completed and local_due > local_now().date() + timedelta(days=7):
+            visible_from = (local_due - timedelta(days=7)).strftime('%d/%m/%Y')
+            flash('Como o prazo está além de 7 dias, o alerta aparecerá na Central '
+                  f'a partir de {visible_from}.', 'info')
         return redirect(url_for('web.reminders'))
-    except ValueError as exc:
-        db.session.rollback()
-        flash(str(exc), 'error')
-        return reminders()
     except HTTPException:
         db.session.rollback()
         raise
     except Exception:
         db.session.rollback()
         current_app.logger.exception('Falha ao criar lembrete manual')
-        flash('Não foi possível criar o lembrete. O erro foi registrado.', 'error')
-        return reminders()
+        return reminders(manual_errors={
+            'form': 'Não foi possível salvar o lembrete. Tente novamente.'}), 500
 
 
 @bp.post('/reminders/<item_type>/<item_id>/<action>')
 def update_reminder(item_type, item_id, action):
     if item_type == 'manual':
+        require_agenda_read()
         reminder = db.session.get(ManualReminder, item_id)
         if not reminder or reminder.owner_id != current_user.id:
             abort(404)
