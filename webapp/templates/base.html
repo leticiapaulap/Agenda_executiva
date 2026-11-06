@@ -34,7 +34,7 @@
     </nav>
     <div class="sidebar-bottom">
       <span class="user-avatar">G</span>
-      <span class="user-label"><small>ACESSO RESTRITO</small><strong>{{ current_user.name }}</strong></span>
+      <span class="user-label"><small>ACESSO RESTRITO</small><strong>{{ current_user.name }}</strong><a class="small-action" href="{{ url_for('account.change_password') }}">Alterar minha senha</a></span>
       <form method="post" action="{{ url_for('web.logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="icon-button" aria-label="Sair" title="Sair">↪</button>

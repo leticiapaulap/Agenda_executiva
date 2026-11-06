@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import date, time
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 from sqlalchemy import create_engine, text
@@ -140,20 +141,29 @@ class UserPermissionsTests(unittest.TestCase):
             db.session.remove()
             db.engine.dispose()
 
-    def test_operator_recovery_resets_existing_admin_without_exposing_password(self):
+    def test_operator_recovery_requires_backup_and_account_confirmation(self):
         self.admin()
         with self.app.app_context():
             admin = db.session.query(User).filter_by(role='admin').one()
-            admin_id, original_version = admin.id, admin.session_version
-        password = 'Senha-recuperada-2026!'
-        result = self.app.test_cli_runner().invoke(
-            args=['users-reset-admin-password', '--email', ADMIN_USERNAME],
-            input=f'{password}\n{password}\n')
+            admin_id, original_hash, original_version = admin.id, admin.password_hash, admin.session_version
+        missing_backup = self.app.test_cli_runner().invoke(args=[
+            'users-reset-admin-password', '--email', ADMIN_USERNAME])
+        self.assertNotEqual(0, missing_backup.exit_code)
+        with tempfile.TemporaryDirectory() as folder, patch(
+                'webapp.recovery.verify_backup', return_value='a' * 64):
+            backup = Path(folder) / 'verified.dump'
+            backup.write_bytes(b'fake backup used with mocked verification')
+            password = 'Senha-recuperada-2026!'
+            result = self.app.test_cli_runner().invoke(
+                args=['users-reset-admin-password', '--email', ADMIN_USERNAME,
+                      '--backup-file', str(backup)],
+                input=f'{admin_id}\n{password}\n{password}\n')
         self.assertEqual(0, result.exit_code, result.output)
         self.assertNotIn(password, result.output)
         with self.app.app_context():
             admin = db.session.get(User, admin_id)
             self.assertEqual(original_version + 1, admin.session_version)
+            self.assertNotEqual(original_hash, admin.password_hash)
             self.assertTrue(check_password_hash(admin.password_hash, password))
             audit = db.session.query(AuditLog).one()
             self.assertEqual('admin_password_recovered', audit.action)

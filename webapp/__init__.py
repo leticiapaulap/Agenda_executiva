@@ -155,12 +155,14 @@ def create_app(test_config=None):
     app.register_blueprint(bp)
     from .user_routes import bp as users_bp
     app.register_blueprint(users_bp)
+    from .account import bp as account_bp
+    app.register_blueprint(account_bp)
     from .catalog import bp as catalog_bp
     app.register_blueprint(catalog_bp)
     from .vault_commands import register_commands
     register_commands(app)
     from .finance_routes import bp as finance_bp
     app.register_blueprint(finance_bp)
-    from .auth import register_recovery_command
-    register_recovery_command(app)
+    from .recovery import register_commands
+    register_commands(app)
     return app

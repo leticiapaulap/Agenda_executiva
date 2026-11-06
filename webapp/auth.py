@@ -1,11 +1,11 @@
 """Authentication, one-time legacy-account import and user administration."""
+import hashlib
 import re
 import time
 from uuid import uuid4
 
 from flask import current_app
 from flask_login import current_user, login_fresh
-import click
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -18,6 +18,53 @@ PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 1024
 _DUMMY_PASSWORD_HASH = generate_password_hash('invalid-login-placeholder')
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+class AuthenticationUnavailable(RuntimeError):
+    """An operational reason code, never deployment secrets or a database error."""
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def password_hash_is_supported(value):
+    """Check Werkzeug hash structure before importing or evaluating a hash."""
+    if not isinstance(value, str) or len(value) > 2048:
+        return False
+    parts = value.split('$')
+    if len(parts) != 3:
+        return False
+    method, salt, digest = parts
+    if not re.fullmatch(r'[A-Za-z0-9]{1,128}', salt):
+        return False
+    if not re.fullmatch(r'[0-9a-f]+', digest):
+        return False
+    parameters = method.split(':')
+    try:
+        if len(parameters) == 4 and parameters[0] == 'scrypt':
+            n, r, p = map(int, parameters[1:])
+            # Accept normal Werkzeug parameters while refusing malformed/costly input.
+            return (2 <= n <= 1048576 and n & (n - 1) == 0
+                    and 1 <= r <= 32 and 1 <= p <= 16 and n * r <= 2097152
+                    and len(digest) == 128)
+        if len(parameters) == 3 and parameters[0] == 'pbkdf2':
+            algorithm, iterations = parameters[1], int(parameters[2])
+            if algorithm not in ('sha1', 'sha224', 'sha256', 'sha384', 'sha512'):
+                return False
+            return 1 <= iterations <= 10000000 and len(digest) == hashlib.new(algorithm).digest_size * 2
+    except (TypeError, ValueError):
+        return False
+    return False
+
+
+def _authentication_failure(reason):
+    current_app.logger.warning('Authentication failed reason=%s', reason)
+
+
+def _dummy_password_check(password):
+    # Keep a real hash evaluation for unknown, inactive and malformed accounts.
+    candidate = password if isinstance(password, str) and len(password) <= PASSWORD_MAX_LENGTH else ''
+    _password_matches(_DUMMY_PASSWORD_HASH, candidate)
 
 
 def normalize_login(value):
@@ -34,35 +81,49 @@ def _lock_security_state():
 
 def bootstrap_legacy_admin():
     """Import the configured administrator once; never recreate it after bootstrap."""
-    legacy_username = current_app.config.get('ADMIN_USERNAME', '')
-    username = normalize_login(legacy_username)
-    password_hash = current_app.config.get('ADMIN_PASSWORD_HASH', '')
-    if not username or not password_hash:
-        return False
     state = _lock_security_state()
     if state is None:
         db.session.rollback()
-        raise RuntimeError('Aplique as migrações do banco antes de autenticar.')
+        raise AuthenticationUnavailable('database_schema')
     if state.bootstrap_complete:
         db.session.commit()
         return False
-    existing = db.session.scalar(select(User).where(func.lower(User.email) == username))
-    if existing is None:
-        admin = User(
-            id=str(uuid4()),
-            name=legacy_username.strip(),
-            email=username,
-            password_hash=password_hash,
-            role='admin',
-            active=True,
-            agenda_access=True,
-            finance_access=True,
-            vault_access=False,
-        )
-        db.session.add(admin)
+    if db.session.scalar(select(User.id).limit(1)) is not None:
+        # Existing database accounts always take precedence over deployment bootstrap.
+        state.bootstrap_complete = True
+        db.session.commit()
+        current_app.logger.info('Authentication bootstrap reason=existing_accounts')
+        return False
+    legacy_username = current_app.config.get('ADMIN_USERNAME', '')
+    password_hash = current_app.config.get('ADMIN_PASSWORD_HASH', '')
+    try:
+        username = _validated_email(legacy_username)
+    except ValueError:
+        db.session.rollback()
+        reason = 'bootstrap_unconfigured' if not normalize_login(legacy_username) else 'bootstrap_login_invalid'
+        raise AuthenticationUnavailable(reason) from None
+    if not password_hash:
+        db.session.rollback()
+        raise AuthenticationUnavailable('bootstrap_unconfigured')
+    if not password_hash_is_supported(password_hash):
+        db.session.rollback()
+        raise AuthenticationUnavailable('bootstrap_hash_invalid')
+    admin = User(
+        id=str(uuid4()),
+        name=legacy_username.strip()[:200],
+        email=username,
+        password_hash=password_hash,
+        role='admin',
+        active=True,
+        agenda_access=True,
+        finance_access=True,
+        vault_access=False,
+    )
+    db.session.add(admin)
     state.bootstrap_complete = True
     db.session.commit()
-    return existing is None
+    current_app.logger.info('Authentication bootstrap reason=initial_admin_imported')
+    return True
 
 
 def _password_matches(password_hash, password):
@@ -76,14 +137,26 @@ def _password_matches(password_hash, password):
 
 def authenticate(username, password):
     username = normalize_login(username)
-    if not username or len(username) > 254 or not isinstance(password, str):
-        _password_matches(_DUMMY_PASSWORD_HASH, password)
+    if (not username or len(username) > 254 or not isinstance(password, str)
+            or len(password) > PASSWORD_MAX_LENGTH):
+        _dummy_password_check(password)
+        _authentication_failure('invalid_credentials')
         return None
     user = db.session.scalar(select(User).where(func.lower(User.email) == username))
     if user is None:
-        _password_matches(_DUMMY_PASSWORD_HASH, password)
+        _dummy_password_check(password)
+        _authentication_failure('unknown_account')
         return None
-    if not user.active or not _password_matches(user.password_hash, password):
+    if not user.active:
+        _dummy_password_check(password)
+        _authentication_failure('inactive_account')
+        return None
+    if not password_hash_is_supported(user.password_hash):
+        _dummy_password_check(password)
+        _authentication_failure('stored_hash_invalid')
+        return None
+    if not _password_matches(user.password_hash, password):
+        _authentication_failure('invalid_credentials')
         return None
     from .models import utc_now
     user.last_login = utc_now()
@@ -256,26 +329,3 @@ def verify_current_password(password, namespace='admin'):
     db.session.commit()
     return (429, 'Muitas tentativas. Aguarde 15 minutos.') if locked else (
         401, 'A senha de confirmação está incorreta.')
-
-
-def register_recovery_command(app):
-    @app.cli.command('users-reset-admin-password')
-    @click.option('--email', prompt='Login do administrador', help='E-mail/login da conta administrativa.')
-    def reset_admin_password(email):
-        """Recover an existing administrator through authenticated operator access."""
-        email = _validated_email(email)
-        user = db.session.scalar(select(User).where(
-            func.lower(User.email) == email, User.role == 'admin'))
-        if user is None:
-            raise click.ClickException('A conta administrativa não foi encontrada.')
-        password = click.prompt('Nova senha', hide_input=True, confirmation_prompt=True)
-        try:
-            _validated_password(password)
-        except ValueError as error:
-            raise click.ClickException(str(error)) from None
-        user.password_hash = generate_password_hash(password)
-        user.session_version += 1
-        db.session.add(AuditLog(actor_id=None, target_user_id=user.id,
-                                action='admin_password_recovered'))
-        db.session.commit()
-        click.echo('Senha administrativa redefinida; sessões anteriores foram invalidadas.')

@@ -77,6 +77,20 @@ class SecurityState(db.Model):
     lock_version = db.Column(db.Integer, nullable=False, default=0)
 
 
+class AdminRecoveryGrant(db.Model):
+    """Short-lived operator authorization; raw tokens never enter the database."""
+    __tablename__ = 'admin_recovery_grants'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    target_user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
+    token_digest = db.Column(db.String(64), nullable=True, unique=True)
+    backup_digest = db.Column(db.String(64), nullable=False)
+    expected_session_version = db.Column(db.Integer, nullable=False)
+    issued_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+
+
 class Event(db.Model):
     __tablename__ = 'events'
     __table_args__ = (

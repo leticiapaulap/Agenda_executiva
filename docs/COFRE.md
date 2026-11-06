@@ -6,13 +6,13 @@ A análise do catálogo anterior confirmou que não existia serviço de criptogr
 
 O campo **Senha é opcional**. Na edição ele começa vazio: deixar vazio mantém a senha atual; preencher substitui; a opção explícita de remoção apaga somente a senha. Salvar/substituir/remover exige reautenticação na interface, assim como revelar ou copiar. A senha nunca é preenchida no HTML inicial ou nas consultas de listagem/edição.
 
-Esta versão atende **acessos pessoais autorizados do único gestor**. Registros antigos migram como **Corporativo / somente catálogo**, sem senha. Para um acesso pessoal, selecione explicitamente **Pessoal · armazenamento autorizado**. Acessos corporativos continuam sem armazenamento de senha, independentemente das chaves configuradas. Não reclassifique uma credencial corporativa como pessoal para contornar essa política. Suporte corporativo exigirá autorização e avaliação específica da organização antes de ser implementado.
+Esta versão atende **acessos pessoais autorizados de usuários que receberam permissão para o cofre**. Registros antigos migram como **Corporativo / somente catálogo**, sem senha. Para um acesso pessoal, selecione explicitamente **Pessoal · armazenamento autorizado**. Acessos corporativos continuam sem armazenamento de senha, independentemente das chaves configuradas. Não reclassifique uma credencial corporativa como pessoal para contornar essa política. Suporte corporativo exigirá autorização e avaliação específica da organização antes de ser implementado.
 
 Usuário/e-mail não existiam no catálogo deste checkout e não foram adicionados como campos sensíveis nesta alteração. Não coloque credenciais em nome, URL, categoria ou observações. A URL continua limitada a HTTP/HTTPS, sem usuário, senha, parâmetros ou fragmentos.
 
 ## Variáveis no Render
 
-Mantenha **inalteradas** `SECRET_KEY`, `DATABASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` e as demais variáveis existentes. A reautenticação web verifica o hash do gestor já configurado.
+Não altere `SECRET_KEY` nem `DATABASE_URL` para configurar o cofre. `ADMIN_USERNAME` e `ADMIN_PASSWORD_HASH` são usados somente no bootstrap inicial; as contas persistidas e seus hashes ficam no PostgreSQL. A reautenticação web verifica a senha atual do usuário autorizado, não uma senha global do gestor.
 
 | Nova variável | Valor necessário |
 |---|---|
@@ -45,9 +45,9 @@ Configure o hash e o conjunto de chaves no ambiente do processo desktop, restrit
 
 ## Revelação, cópia e falhas
 
-Na web, cada operação `POST /vault/<id>/secret` exige sessão autenticada e recente, token CSRF e senha atual do gestor. Aceita `action=reveal` ou `action=copy`. É a **única resposta HTTP que devolve a senha em texto puro**, para o navegador autorizado realizar a ação. Não existe listagem JSON de senhas. Login/CSRF são exigidos também nos cadastros e exclusões. A senha de reautenticação não é guardada na sessão ou no banco.
+Na web, cada operação `POST /vault/<id>/secret` exige sessão autenticada e recente, token CSRF e senha atual do usuário autorizado. Aceita `action=reveal` ou `action=copy`. É a **única resposta HTTP que devolve a senha em texto puro**, para o navegador autorizado realizar a ação. Não existe listagem JSON de senhas. Login/CSRF são exigidos também nos cadastros e exclusões. A senha de reautenticação não é guardada na sessão ou no banco.
 
-Cinco falhas de reautenticação bloqueiam novas tentativas por 15 minutos, com estado persistido por gestor no banco, independentemente do endereço de origem e de reiniciar o serviço. O desktop possui controle equivalente persistido em `settings`. Um novo login não constitui dispensa de reautenticação do cofre.
+Cinco falhas de reautenticação bloqueiam novas tentativas por 15 minutos, com estado persistido por usuário no banco, independentemente do endereço de origem e de reiniciar o serviço. O desktop possui controle equivalente persistido em `settings`. Um novo login não constitui dispensa de reautenticação do cofre.
 
 As respostas do cofre usam `Cache-Control: no-store`, `Pragma: no-cache` e `Referrer-Policy: strict-origin-when-cross-origin`. Essa política mantém o `Referer` de mesma origem necessário à validação CSRF em HTTPS, sem enviar caminhos completos a outros domínios. A interface usa `textContent`, não injeta HTML contendo senha. A exibição é mascarada após 30 segundos e ao deixar a página/seção. Campos de autenticação são limpos ao concluir/cancelar. Falhas de autenticação, permissões, configuração, integridade ou descriptografia apresentam mensagens fixas sem chaves, ciphertexts, formulários ou senhas nos logs.
 

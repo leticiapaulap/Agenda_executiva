@@ -7,11 +7,12 @@ from flask import (Blueprint, abort, current_app, flash, redirect, render_templa
                    request, send_file, session, url_for)
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
 from agenda.services import AgendaService, CATEGORIES, MONTHS, PRIORITIES, REMINDERS
 from agenda.finance import FinanceService
-from .auth import authenticate, bootstrap_legacy_admin, login_attempt_for
+from .auth import AuthenticationUnavailable, authenticate, bootstrap_legacy_admin, login_attempt_for
 from .finance_repository import WebFinanceRepository
 from .exports import export_ics, export_pdf, export_xlsx, resolve_period
 from .models import (Event, LoginAttempt, ManualReminder, ReminderState, Task,
@@ -100,44 +101,68 @@ def _save_event(event_id=None, initial=None):
 
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
-    if current_user.is_authenticated:
-        return redirect(_default_destination(current_user))
-    if request.method == 'POST':
-        bootstrap_legacy_admin()
-        now = int(time.time())
-        client_key = (request.remote_addr or 'unknown')[:64]
-        attempt = login_attempt_for(client_key, now)
-        if attempt and attempt.locked_until > now:
-            db.session.commit()
-            flash('Muitas tentativas de acesso. Aguarde 15 minutos e tente novamente.', 'error')
-            return render_template('login.html'), 429
-        if attempt and now - attempt.window_started_at >= 900:
-            attempt.failures = 0
-            attempt.window_started_at = now
-            attempt.locked_until = 0
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        user = authenticate(username, password)
-        if user is not None:
-            db.session.delete(attempt)
-            db.session.commit()
-            session.clear()
-            session.permanent = True
-            login_user(user, remember=False, fresh=True)
-            target = _safe_next(request.args.get('next'))
-            return redirect(target or _default_destination(user))
-        db.session.execute(delete(LoginAttempt).where(
-            LoginAttempt.window_started_at < now - 86400,
-            LoginAttempt.client_key != client_key,
-        ))
-        attempt.failures += 1
-        if attempt.failures >= 5:
-            attempt.locked_until = now + 900
+    try:
+        if current_user.is_authenticated:
+            return redirect(_default_destination(current_user))
+        if request.method == 'POST':
+            return _submit_login()
+        return render_template('login.html')
+    except AuthenticationUnavailable as error:
+        reason = error.reason
+    except SQLAlchemyError as error:
+        # Classify operational failures without logging exception text or SQL/URLs.
+        original = getattr(error, 'orig', None)
+        sqlstate = getattr(original, 'sqlstate', '') or ''
+        missing_schema = sqlstate.startswith('42') or (
+            getattr(original, 'sqlite_errorcode', None) == 1
+            and any(marker in str(original).lower() for marker in ('no such table', 'no such column')))
+        reason = 'database_schema' if missing_schema else 'database_unavailable'
+    except Exception:
+        reason = 'internal_error'
+    db.session.rollback()
+    current_app.logger.error('Authentication unavailable reason=%s', reason)
+    flash('Não foi possível entrar agora. Tente novamente mais tarde.', 'error')
+    return render_template('login.html'), 503
+
+
+def _submit_login():
+    bootstrap_legacy_admin()
+    now = int(time.time())
+    client_key = (request.remote_addr or 'unknown')[:64]
+    attempt = login_attempt_for(client_key, now)
+    if attempt and attempt.locked_until > now:
         db.session.commit()
-        if attempt.locked_until > now:
-            flash('Muitas tentativas de acesso. Aguarde 15 minutos e tente novamente.', 'error')
-            return render_template('login.html'), 429
-        flash('Usuário ou senha inválidos.', 'error')
+        current_app.logger.warning('Authentication failed reason=rate_limited')
+        flash('Muitas tentativas de acesso. Aguarde 15 minutos e tente novamente.', 'error')
+        return render_template('login.html'), 429
+    if attempt and now - attempt.window_started_at >= 900:
+        attempt.failures = 0
+        attempt.window_started_at = now
+        attempt.locked_until = 0
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    user = authenticate(username, password)
+    if user is not None:
+        db.session.delete(attempt)
+        db.session.commit()
+        session.clear()
+        session.permanent = True
+        login_user(user, remember=False, fresh=True)
+        target = _safe_next(request.args.get('next'))
+        return redirect(target or _default_destination(user))
+    db.session.execute(delete(LoginAttempt).where(
+        LoginAttempt.window_started_at < now - 86400,
+        LoginAttempt.client_key != client_key,
+    ))
+    attempt.failures += 1
+    if attempt.failures >= 5:
+        attempt.locked_until = now + 900
+    db.session.commit()
+    if attempt.locked_until > now:
+        current_app.logger.warning('Authentication failed reason=rate_limited')
+        flash('Muitas tentativas de acesso. Aguarde 15 minutos e tente novamente.', 'error')
+        return render_template('login.html'), 429
+    flash('Usuário ou senha inválidos.', 'error')
     return render_template('login.html')
 
 
