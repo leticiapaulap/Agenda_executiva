@@ -8,7 +8,7 @@
 <div class="stat-grid">
   <article class="stat-card"><span class="stat-icon blue">▦</span><span class="stat-label">Hoje</span><strong>{{ counts.today }}</strong><small>compromissos</small></article>
   <article class="stat-card"><span class="stat-icon amber">◷</span><span class="stat-label">Pendentes</span><strong>{{ counts.pending_events }}</strong><small>compromissos</small></article>
-  <article class="stat-card"><span class="stat-icon violet">✓</span><span class="stat-label">Tarefas</span><strong>{{ counts.pending_tasks }}</strong><small>em aberto</small></article>
+  {% if current_user.can_access_vault %}<article class="stat-card"><span class="stat-icon violet" aria-hidden="true">🔒</span><a class="stat-label text-link" href="{{ url_for('catalog.entries') }}">Senhas</a><strong>{{ counts.vault_entries }}</strong><small>acessos cadastrados</small></article>{% endif %}
   <article class="stat-card"><span class="stat-icon red">↗</span><span class="stat-label">Urgentes</span><strong>{{ counts.urgent }}</strong><small>prioridade máxima</small></article>
 </div>
 <div class="content-grid">
@@ -24,14 +24,9 @@
       {% endfor %}</div>
     {% else %}<div class="empty-state"><span>▦</span><strong>Sua agenda está livre</strong><p>Adicione um compromisso para começar.</p></div>{% endif %}
   </section>
-  <section class="panel">
-    <div class="panel-heading"><div><p class="eyebrow">ORGANIZAÇÃO</p><h2>Tarefas pendentes</h2></div><a class="text-link" href="{{ url_for('web.tasks') }}">Ver todas →</a></div>
-    {% if tasks %}<div class="record-list">{% for task in tasks %}
-      <article class="task-row">{% if can_edit_task(task) %}<form method="post" action="{{ url_for('web.toggle_task', task_id=task.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="check-button" aria-label="Concluir {{ task.title }}">○</button></form>{% endif %}
-        <div class="record-main"><a class="record-title" href="{{ url_for('web.tasks', edit=task.id) if can_edit_task(task) else url_for('web.task_details', task_id=task.id) }}">{{ task.title }}</a><span>{{ task.due_date|replace('-', '/') if task.due_date else 'Sem prazo' }}</span></div>
-        <span class="priority {{ task.priority|lower }}">{{ task.priority }}</span>
-      </article>
-    {% endfor %}</div>{% else %}<div class="empty-state"><span>✓</span><strong>Nenhuma tarefa pendente</strong><p>Um bom momento para planejar.</p></div>{% endif %}
-  </section>
+  {% if current_user.can_access_vault %}<section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">ACESSOS</p><h2>Senhas</h2></div><a class="text-link" href="{{ url_for('catalog.entries') }}">Gerenciar acessos →</a></div>
+    <div class="empty-state"><span aria-hidden="true">🔒</span><strong>{{ counts.vault_entries }} {{ 'acesso cadastrado' if counts.vault_entries == 1 else 'acessos cadastrados' }}</strong><p>Cadastre serviços, organize seus acessos e consulte senhas mediante confirmação de identidade.</p><a class="button secondary" href="{{ url_for('catalog.entries') }}">Abrir Senhas</a></div>
+  </section>{% endif %}
 </div>
 {% endblock %}

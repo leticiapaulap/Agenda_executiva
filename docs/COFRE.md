@@ -2,19 +2,19 @@
 
 ## Escopo
 
-A análise do catálogo anterior confirmou que não existia serviço de criptografia nem chave de cofre. Esta atualização acrescenta `agenda/vault.py`, compartilhado pelo desktop e pela web, sem usar `SECRET_KEY`. As outras seções da agenda mantêm suas regras.
+A seção web **Senhas** substitui Tarefas no menu e reutiliza o cofre existente: a tabela `access_catalog`, o serviço AES-GCM de `agenda/vault.py` e o chaveiro externo já configurado. Não cria outro armazenamento nem troca a chave. `SECRET_KEY` continua destinada exclusivamente às sessões. Usuários, compromissos e tarefas existentes são preservados.
 
 O campo **Senha é opcional**. Na edição ele começa vazio: deixar vazio mantém a senha atual; preencher substitui; a opção explícita de remoção apaga somente a senha. Salvar/substituir/remover exige reautenticação na interface, assim como revelar ou copiar. A senha nunca é preenchida no HTML inicial ou nas consultas de listagem/edição.
 
-Esta versão atende **acessos pessoais autorizados de usuários que receberam permissão para o cofre**. Registros antigos migram como **Corporativo / somente catálogo**, sem senha. Para um acesso pessoal, selecione explicitamente **Pessoal · armazenamento autorizado**. Acessos corporativos continuam sem armazenamento de senha, independentemente das chaves configuradas. Não reclassifique uma credencial corporativa como pessoal para contornar essa política. Suporte corporativo exigirá autorização e avaliação específica da organização antes de ser implementado.
+Esta versão atende **acessos pessoais autorizados de usuários que receberam permissão para o cofre**. A classificação dos acessos e as senhas já cifradas são preservadas; catálogos anteriores à implementação do cofre receberam a classificação **Corporativo / somente catálogo**, sem senha, na migração `0004_vault_passwords`. Para um acesso pessoal, selecione explicitamente **Pessoal · armazenamento autorizado**. Acessos corporativos continuam sem armazenamento de senha, independentemente das chaves configuradas. Não reclassifique uma credencial corporativa como pessoal para contornar essa política.
 
-Usuário/e-mail não existiam no catálogo deste checkout e não foram adicionados como campos sensíveis nesta alteração. Não coloque credenciais em nome, URL, categoria ou observações. A URL continua limitada a HTTP/HTTPS, sem usuário, senha, parâmetros ou fragmentos.
+O formulário contém serviço/sistema, usuário/e-mail, senha, URL, categoria e observações. Usuário/e-mail são metadados visíveis aos usuários autorizados do cofre e podem ser pesquisados e copiados. Senhas pertencem somente ao campo próprio; não as coloque em nome, URL, categoria ou observações. A URL continua limitada a HTTP/HTTPS, sem usuário, senha, parâmetros ou fragmentos.
 
 ## Variáveis no Render
 
 Não altere `SECRET_KEY` nem `DATABASE_URL` para configurar o cofre. `ADMIN_USERNAME` e `ADMIN_PASSWORD_HASH` são usados somente no bootstrap inicial; as contas persistidas e seus hashes ficam no PostgreSQL. A reautenticação web verifica a senha atual do usuário autorizado, não uma senha global do gestor.
 
-| Nova variável | Valor necessário |
+| Variável existente do cofre | Valor necessário |
 |---|---|
 | `VAULT_ENABLED` | `true` somente após autorizar o armazenamento de acessos pessoais; padrão `false` |
 | `VAULT_KEYS` | JSON com versões e chaves aleatórias de **32 bytes**, codificadas em Base64 URL-safe: objeto no formato `{"v1":"<chave gerada>"}` |
@@ -57,11 +57,13 @@ Se uma chave antiga estiver ausente ou os dados forem adulterados, a revelação
 
 ## Migração e publicação
 
-- Dependência nova: `cryptography==50.0.2`.
-- Nova revisão Alembic: **`0004_vault_passwords`**, após `0003_access_catalog`. Adiciona `password_ciphertext` anulável e `is_corporate` com padrão `1`, além de restrições que impedem senha em registro corporativo. Não recria nem remove acessos/compromissos.
-- Desktop: SQLite passa de esquema 3 para **4**, com backup automático antes da migração aditiva. Os IDs e dados dos acessos existentes são preservados. Backups cifrados continuam exigindo suas chaves originais.
+- Dependência do cofre existente: `cryptography==50.0.2`.
+- A revisão anterior **`0004_vault_passwords`**, após `0003_access_catalog`, adicionou `password_ciphertext` anulável e `is_corporate` com padrão `1`, além de restrições que impedem senha em registro corporativo.
+- A interface web **Senhas** reaproveita `access_catalog`; não há um segundo cofre. A revisão aditiva **`0008_access_username`** acrescenta `username` vazio para registros existentes, mantendo suas senhas cifradas e metadados. O menu abre a página atual do cofre, com cadastro, edição, busca, cópia de usuário, link do site e exclusão confirmada. Tarefas antigas permanecem na tabela `tasks` e têm página administrativa somente leitura.
+- A URL antiga `/tasks` redireciona para `/vault`. Os POSTs antigos de tarefas respondem com `410 Gone`, sem gravação; a consulta administrativa é `/tasks/archive`. Pesquisa, calendário e lembretes continuam permitindo consultar tarefas antigas conforme as permissões existentes. Nenhuma tarefa é convertida em acesso.
+- Desktop: SQLite passa de esquema 4 para **5**, com backup automático antes da migração aditiva de `username`. Os IDs e demais dados dos acessos existentes são preservados. Backups cifrados continuam exigindo suas chaves originais.
 
-Após backup e revisão do código, envie as alterações ao branch conectado ao Render. Preserve build `pip install -r requirements.txt`, pre-deploy **`flask --app app db upgrade`** e start `gunicorn app:app`. Quem já está em `0003` executará apenas `0004`; instalações anteriores aplicarão também as revisões pendentes. Confirme `flask --app app db current`. Não execute downgrade automático.
+Após backup e revisão do código, envie as alterações ao branch conectado ao Render. Preserve build `pip install -r requirements.txt`, pre-deploy **`flask --app app db upgrade`** e start `gunicorn app:app`. Quem já está em `0007_admin_recovery` executará somente `0008_access_username`; instalações anteriores aplicarão também as revisões pendentes. Confirme `flask --app app db current`. Não execute downgrade automático. Não é necessária variável de ambiente nova: mantenha as mesmas `VAULT_ENABLED`, `VAULT_KEYS` e `VAULT_ACTIVE_KEY_ID`; não troque nem regenere as chaves durante a atualização.
 
 Em homologação, confira login, catálogo corporativo, senha pessoal, máscara inicial, reautenticação, bloqueio de tentativas, edição vazia, recuperação da chave e preservação das outras seções. PostgreSQL/Render reais ainda precisam de homologação; não foram acessados nesta implementação. A geração do novo executável desktop continua pelo build do README.
 
@@ -98,4 +100,4 @@ Em homologação, confira login, catálogo corporativo, senha pessoal, máscara 
 
 `tests/test_vault.py` cobre criptografia, adulteração, associação ao registro, política corporativa, perda/rotação de chaves, CRUD, migrações desktop/web, autenticação, CSRF, sessão recente, bloqueio de tentativas e rotação web atômica. `tests/test_vault_admin.py` testa a ferramenta desktop, backup e rollback. `tests/smoke_vault.py` exercita os controles reais CustomTkinter. `tests/smoke_vault_web.py` usa Edge headless e Playwright (dependência opcional em `requirements-test.txt`), com clipboard real, avanço de relógio para testar 30 segundos e viewport de 390 px. A suíte usa somente chaves aleatórias de teste e bancos temporários.
 
-Arquivos deste aprimoramento: `agenda/vault.py`, `agenda/vault_admin.py`, `agenda/catalog.py`, `agenda/storage.py`, `agenda/feature_views.py`, `agenda/ui.py`, `webapp/catalog.py`, `webapp/vault_commands.py`, `webapp/__init__.py`, `webapp/templates/catalog.html`, `webapp/static/vault.js`, estilos do cofre em `webapp/static/style.css`, `migrations/versions/0004_vault_passwords.py`, testes citados e ajustes de expectativas nos testes antigos de catálogo. Também foram atualizados `requirements.txt`, `requirements-test.txt`, exemplo de ambiente, README e documentação. Sem chave real versionada ou alteração de variáveis de produção.
+Os testes de cofre validam cadastro, edição, exclusão, pesquisa por usuário, autorização, reautenticação e criptografia; `tests/smoke_vault_web.py` também valida cópia do usuário no navegador. `tests/test_password_migration.py` verifica a atualização de `0007` para `0008`: todas as linhas existentes são preservadas, somente `username` é acrescentado ao esquema, a chave original ainda revela a senha e falhas de autenticação/gravação não expõem os segredos em respostas ou logs. Testes locais com SQLite não substituem a validação do PostgreSQL e do deploy real no Render.

@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Pesquisa{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">PESQUISA</p><h1>Resultados</h1><p class="muted">Busca por “{{ query }}” em compromissos e tarefas.</p></div></div>
+<div class="page-heading"><div><p class="eyebrow">PESQUISA</p><h1>Resultados</h1><p class="muted">Busca por “{{ query }}” em compromissos e registros antigos.</p></div></div>
 <div class="content-grid">
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">AGENDA</p><h2>Compromissos · {{ events|length }}</h2></div></div>
     {% for event in events %}<article class="record"><div class="record-main"><a class="record-title" href="{{ url_for('web.edit_event', event_id=event.id) if can_edit_record(event) else url_for('web.event_details', event_id=event.id) }}">{{ event.title }}</a><span>{{ event.event_date }} · {{ event.event_time }} · {{ event.category }}</span></div><span class="priority {{ event.priority|lower }}">{{ event.priority }}</span></article>{% else %}<p class="muted">Nenhum compromisso encontrado.</p>{% endfor %}
   </section>
-  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">ORGANIZAÇÃO</p><h2>Tarefas · {{ tasks|length }}</h2></div></div>
-    {% for task in tasks %}<article class="record"><div class="record-main"><a class="record-title" href="{{ url_for('web.tasks', edit=task.id) if can_edit_task(task) else url_for('web.task_details', task_id=task.id) }}">{{ task.title }}</a><span>{{ task.due_date or 'Sem prazo' }}</span></div><span class="priority {{ task.priority|lower }}">{{ task.priority }}</span></article>{% else %}<p class="muted">Nenhuma tarefa encontrada.</p>{% endfor %}
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">ARQUIVO PRESERVADO</p><h2>Registros antigos · {{ tasks|length }}</h2></div></div>
+    {% for task in tasks %}<article class="record"><div class="record-main"><a class="record-title" href="{{ url_for('web.task_details', task_id=task.id) }}">{{ task.title }}</a><span>{{ task.due_date or 'Sem prazo' }}</span></div><span class="priority {{ task.priority|lower }}">{{ task.priority }}</span></article>{% else %}<p class="muted">Nenhum registro antigo encontrado.</p>{% endfor %}
   </section>
 </div>
 {% endblock %}

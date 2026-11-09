@@ -205,11 +205,12 @@ class SQLiteVaultTests(unittest.TestCase):
         migrated = self.service.get_entry(entry_id)
         for field in ('id', 'name', 'url', 'category', 'notes', 'updated_at'):
             self.assertEqual(original[field], migrated[field])
+        self.assertEqual('', migrated['username'])
         self.assertTrue(migrated['is_corporate'])
         self.assertFalse(migrated['has_password'])
         self.assertTrue(list((self.path.parent / 'backups').glob('*antes_migracao*.db')))
         with closing(sqlite3.connect(self.path)) as connection:
-            self.assertEqual(4, connection.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(5, connection.execute('PRAGMA user_version').fetchone()[0])
 
 
 class WebVaultTests(unittest.TestCase):
@@ -266,22 +267,36 @@ class WebVaultTests(unittest.TestCase):
 
     def test_create_update_blank_preserves_delete_and_no_initial_exposure(self):
         self.login()
-        values = {'csrf_token': self.token('/vault'), 'name': 'Meu serviço', 'password': SECRET,
-                  'is_corporate': '0', 'reauth_password': ADMIN_PASSWORD, 'category': 'Pessoal'}
+        values = {'csrf_token': self.token('/vault'), 'name': 'Meu serviço',
+                  'username': 'pessoa@example.test', 'password': SECRET,
+                  'is_corporate': '0', 'reauth_password': ADMIN_PASSWORD,
+                  'category': 'Pessoal', 'url': 'https://example.test/login',
+                  'notes': 'Conta principal'}
         response = self.client.post('/vault', data=values)
         self.assertEqual(302, response.status_code)
         with self.app.app_context():
             row = db.session.query(AccessEntry).one()
             entry_id, encrypted = row.id, row.password_ciphertext
             self.assertNotEqual(SECRET, encrypted)
-        for path in ('/vault', f'/vault?edit={entry_id}', '/vault?q=pessoal'):
+            self.assertEqual('pessoa@example.test', row.username)
+        for path in ('/vault', f'/vault?edit={entry_id}', '/vault?q=pessoal',
+                     '/vault?q=pessoa%40example.test'):
             response = self.client.get(path)
             self.assertEqual(200, response.status_code)
             self.assertNotIn(SECRET.encode(), response.data)
             self.assertNotIn(encrypted.encode(), response.data)
             self.assertIn('••••••••'.encode(), response.data)
+            self.assertIn(b'pessoa@example.test', response.data)
+            self.assertIn(b'data-copy-username', response.data)
+            self.assertIn(b'username', response.data)
+            self.assertIn(b'Confirmar identidade', response.data)
         self.client.post('/vault', data={'csrf_token': self.token('/vault'), 'entry_id': entry_id,
-                                         'name': 'Editado', 'password': '', 'is_corporate': '0'})
+                                         'name': 'Editado', 'username': 'novo@example.test',
+                                         'password': '', 'is_corporate': '0'})
+        with self.app.app_context():
+            row = db.session.get(AccessEntry, entry_id)
+            self.assertEqual('novo@example.test', row.username)
+            self.assertEqual(encrypted, row.password_ciphertext)
         self.assertEqual(SECRET, self.secret(entry_id).get_json()['password'])
         self.client.post('/vault', data={'csrf_token': self.token('/vault'), 'entry_id': entry_id,
                                          'name': 'Editado', 'password': 'Atualizada-!26',
@@ -290,6 +305,25 @@ class WebVaultTests(unittest.TestCase):
         self.client.post(f'/vault/{entry_id}/delete', data={'csrf_token': self.token('/vault')})
         with self.app.app_context():
             self.assertIsNone(db.session.get(AccessEntry, entry_id))
+
+    def test_password_page_requires_explicit_vault_permission_and_sidebar_targets_senhas(self):
+        response = self.client.get('/vault')
+        self.assertEqual(302, response.status_code)
+        self.assertIn('/login', response.headers['Location'])
+        token = self.token()
+        self.client.post('/login', data={'csrf_token': token, 'username': 'test',
+                                         'password': ADMIN_PASSWORD})
+        response = self.client.get('/vault')
+        self.assertEqual(403, response.status_code)
+        self.client = self.app.test_client()
+        self.login()
+        response = self.client.get('/')
+        self.assertIn('>🔒</span> Senhas'.encode(), response.data)
+        self.assertNotIn('>✓</span> Tarefas'.encode(), response.data)
+        response = self.client.get('/vault')
+        self.assertEqual(200, response.status_code)
+        self.assertIn('<h1>Senhas</h1>'.encode(), response.data)
+        self.assertIn('Consultar tarefas antigas preservadas'.encode(), response.data)
 
     def test_login_csrf_freshness_and_reauthentication_required_for_each_secret(self):
         entry_id = self.seed()
@@ -357,6 +391,30 @@ class WebVaultTests(unittest.TestCase):
         self.assertEqual(302, response.status_code)
         with self.app.app_context():
             self.assertIsNone(db.session.get(AccessEntry, entry_id).password_ciphertext)
+
+    def test_failed_edit_keeps_metadata_and_identity_but_never_passwords(self):
+        entry_id = self.seed()
+        self.login()
+        for confirmation, status in (('wrong-password', 401), (ADMIN_PASSWORD, 400)):
+            with self.subTest(status=status):
+                response = self.client.post('/vault', data={
+                    'csrf_token': self.token('/vault'), 'entry_id': entry_id,
+                    'name': '' if status == 400 else 'Nome atualizado',
+                    'username': 'keep@example.test', 'notes': 'Nota preservada',
+                    'password': SECRET, 'is_corporate': '0',
+                    'reauth_password': confirmation})
+                self.assertEqual(status, response.status_code)
+                self.assertIn(f'name="entry_id" value="{entry_id}"'.encode(), response.data)
+                self.assertIn(b'keep@example.test', response.data)
+                self.assertIn(b'Nota preservada', response.data)
+                self.assertNotIn(SECRET.encode(), response.data)
+                self.assertNotIn(confirmation.encode(), response.data)
+                self.assertIn(b'<input type="password" name="password"', response.data)
+                with self.app.app_context():
+                    self.assertEqual(1, db.session.query(AccessEntry).count())
+                    self.assertEqual('Serviço pessoal', db.session.get(AccessEntry, entry_id).name)
+                    self.assertEqual(SECRET, AccessCatalog(
+                        WebCatalogRepository(), VaultCipher(self.config)).reveal_password(entry_id))
 
     def test_key_loss_or_corruption_fails_without_logging_or_rewriting_secret(self):
         entry_id = self.seed()

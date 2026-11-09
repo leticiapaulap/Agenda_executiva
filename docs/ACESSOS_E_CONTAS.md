@@ -2,15 +2,17 @@
 
 ## Arquitetura e Cofre de Senhas
 
-O desktop mantém SQLite e CustomTkinter; a web mantém SQLAlchemy, PostgreSQL, contas individuais, permissões e CSRF. O catálogo original não possuía criptografia. O aprimoramento acrescenta `agenda/vault.py`, serviço AES-GCM compartilhado, chaveiro externo versionado e autenticação adicional. `SECRET_KEY` permanece exclusivamente para a sessão. Nenhuma variável de produção foi consultada ou alterada.
+O desktop mantém SQLite e CustomTkinter; a web mantém SQLAlchemy, PostgreSQL, contas individuais, permissões e CSRF. A seção web **Senhas** reutiliza `agenda/vault.py`, serviço AES-GCM compartilhado, chaveiro externo versionado e autenticação adicional já existentes. `SECRET_KEY` permanece exclusivamente para a sessão. Nenhuma variável de produção precisa ser alterada se o cofre já estiver configurado.
 
 Na web, a senha fica como hash independente em `users.password_hash`. `ADMIN_USERNAME` e `ADMIN_PASSWORD_HASH` são usados apenas para importar o primeiro administrador quando a migração ainda não encontrou contas e o marcador `security_state.bootstrap_complete` ainda está falso. Após o bootstrap, alterações nas variáveis não atualizam contas existentes. `DATABASE_URL` seleciona o PostgreSQL; `SECRET_KEY` assina sessões e não corrige credenciais. Para diagnóstico e recuperação operacional, use o procedimento Render em [RENDER.md](RENDER.md), que também funciona sem Shell no plano Free.
+
+Na web, **Senhas** reutiliza o catálogo `access_catalog` e o cofre AES-GCM existente; não cria um segundo armazenamento de credenciais. Os acessos têm sistema, usuário/e-mail, senha, URL, categoria e observações; busca cobre serviço, usuário, categoria e notas. Senhas são reveladas ou copiadas apenas após reautenticação; a listagem contém metadados e um indicador de senha cadastrada, sem plaintext ou ciphertext. A permissão explícita do cofre continua obrigatória. A URL antiga `/tasks` redireciona para `/vault`; os POSTs antigos de tarefas respondem `410 Gone`, sem gravação. A consulta administrativa `/tasks/archive` é somente leitura; a tabela `tasks` e os registros existentes não são convertidos em acessos. Pesquisa, calendário e lembretes mantêm a consulta aos registros antigos conforme as permissões.
 
 O campo Senha é opcional para acessos pessoais autorizados. Olho e cópia exigem reautenticação por operação; editar com senha vazia preserva a existente. Listagem e HTML inicial não contêm senha ou ciphertext. Somente uma operação POST específica, autorizada e protegida por CSRF, pode devolver a senha para revelação/cópia.
 
 Sem configuração válida, funciona somente o catálogo. Registros antigos e corporativos permanecem no catálogo, com proibição de senha também no banco. Não reclassifique credenciais corporativas como pessoais para contornar políticas. Suporte corporativo permanece pendente de autorização e avaliação específica da organização.
 
-Consulte [COFRE.md](COFRE.md) para as variáveis exatas do Render e desktop, geração privada de chaves, rotação transacional, recuperação, limitações de clipboard e permissões. O aplicativo continua de gestor único; não oferece isolamento contra processos comprometidos sob a mesma identidade do sistema operacional.
+Consulte [COFRE.md](COFRE.md) para as variáveis exatas do Render e desktop, geração privada de chaves, rotação transacional, recuperação, limitações de clipboard e permissões. A migração `0008_access_username` adiciona o campo de usuário de acesso, sem alterar compromissos ou tarefas; o upgrade do SQLite desktop é aditivo e cria backup.
 
 ## Contas e Vencimentos
 
@@ -34,7 +36,7 @@ O backup SQLite inclui metadados, mas **não inclui os arquivos de comprovantes*
 
 ## Publicação e validação
 
-As migrações web incluem `0002_finance`, `0003_access_catalog`, `0004_vault_passwords`, `0005_users_permissions`, `0006_reminder_center` e `0007_admin_recovery`, posteriores a `0001_create_agenda_tables`; são aditivas e não recriam os dados existentes. O desktop passa para `PRAGMA user_version=4`, com backup antes da atualização de bancos antigos. Não use downgrade para apagar tabelas.
+As migrações web incluem `0002_finance`, `0003_access_catalog`, `0004_vault_passwords`, `0005_users_permissions`, `0006_reminder_center`, `0007_admin_recovery` e `0008_access_username`, posteriores a `0001_create_agenda_tables`; são aditivas e não recriam os dados existentes. O desktop passa para `PRAGMA user_version=5`, com backup antes da atualização de bancos antigos. Não use downgrade para apagar tabelas.
 
 Execute os testes com `.venv\Scripts\python.exe -m unittest discover -s tests -v`. Todos usam bancos temporários. A suíte do cofre verifica criptografia, autorização, CSRF, política corporativa, chave perdida, migrações e rotação atômica. Consulte o relatório de validação para resultados e limites, incluindo validação PostgreSQL real e revisão visual.
 

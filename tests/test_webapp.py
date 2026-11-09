@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from werkzeug.security import generate_password_hash
@@ -165,37 +166,52 @@ class WebAgendaTests(unittest.TestCase):
             db.session.remove()
             db.engine.dispose()
 
-    def test_tasks_calendar_reminders_search_and_validation(self):
+    def test_legacy_tasks_are_read_only_and_preserved_in_calendar_and_search(self):
         self._login()
         response = self.client.post('/events/new', data=self._event_form(), follow_redirects=True)
         self.assertEqual(200, response.status_code)
-        task_form = {
-            'csrf_token': self._csrf('/tasks'), 'title': 'Preparar pauta',
-            'description': 'Revisar pontos', 'due_date': '2026-12-10', 'priority': 'Urgente',
-        }
-        self.client.post('/tasks', data=task_form, follow_redirects=True)
+        # Historic records remain in their original table; the retired task form
+        # must never create, update, complete, or delete them.
         with self.app.app_context():
-            task = db.session.query(Task).one()
+            task = Task(title='Preparar pauta', description='Revisar pontos',
+                        due_date=date(2026, 12, 10), priority='Urgente', completed=0)
+            db.session.add(task)
+            db.session.commit()
             task_id = task.id
+        redirect = self.client.get('/tasks')
+        self.assertEqual(302, redirect.status_code)
+        self.assertTrue(redirect.headers['Location'].endswith('/vault'))
         self.assertEqual(200, self.client.get('/calendar?month=2026-12-01').status_code)
         self.assertEqual(200, self.client.get('/reminders').status_code)
         self.assertIn('Preparar pauta'.encode(), self.client.get('/search?q=pauta').data)
-        self.client.post(f'/tasks/{task_id}/toggle', data={'csrf_token': self._csrf('/tasks')})
-        with self.app.app_context():
-            self.assertEqual(1, db.session.get(Task, task_id).completed)
-        self.client.post('/tasks', data={
-            'csrf_token': self._csrf('/tasks'), 'task_id': str(task_id),
+        archive = self.client.get('/tasks/archive')
+        self.assertEqual(200, archive.status_code)
+        self.assertIn('Preparar pauta'.encode(), archive.data)
+        self.assertNotIn(f'/tasks/{task_id}/delete'.encode(), archive.data)
+        detail = self.client.get(f'/tasks/{task_id}')
+        self.assertEqual(200, detail.status_code)
+        self.assertNotIn(b'/tasks?edit=', detail.data)
+        task_form = {
+            'csrf_token': self._csrf('/events'), 'task_id': str(task_id),
             'title': 'Preparar pauta revista', 'description': 'Atualizada',
             'due_date': '2026-12-12', 'priority': 'Alta',
-        })
+        }
+        self.assertEqual(410, self.client.post('/tasks', data=task_form).status_code)
+        for action in ('toggle', 'delete'):
+            response = self.client.post(f'/tasks/{task_id}/{action}',
+                                        data={'csrf_token': self._csrf('/events')})
+            self.assertEqual(410, response.status_code)
+        response = self.client.post(f'/reminders/task/{task_id}/complete',
+                                    data={'csrf_token': self._csrf('/reminders')})
+        self.assertEqual(410, response.status_code)
         with self.app.app_context():
+            self.assertEqual(1, db.session.query(Task).count())
             task = db.session.get(Task, task_id)
-            self.assertEqual('Preparar pauta revista', task.title)
-            self.assertEqual('Alta', task.priority)
-            self.assertEqual(1, task.completed)
-        self.client.post(f'/tasks/{task_id}/delete', data={'csrf_token': self._csrf('/tasks')})
-        with self.app.app_context():
-            self.assertIsNone(db.session.get(Task, task_id))
+            self.assertEqual('Preparar pauta', task.title)
+            self.assertEqual('Revisar pontos', task.description)
+            self.assertEqual(date(2026, 12, 10), task.due_date)
+            self.assertEqual('Urgente', task.priority)
+            self.assertEqual(0, task.completed)
         invalid = self._event_form(priority='super')
         response = self.client.post('/events/new', data=invalid)
         self.assertEqual(400, response.status_code)

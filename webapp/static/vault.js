@@ -1,11 +1,33 @@
 /* Plaintext exists only following a deliberate, reauthenticated operation. */
 document.addEventListener('DOMContentLoaded', () => {
+  const editor = document.querySelector('[data-vault-editor]');
+  if (editor) {
+    const kind = editor.querySelector('[name="is_corporate"]');
+    const password = editor.querySelector('[name="password"]');
+    const updatePasswordField = () => {
+      password.disabled = editor.dataset.vaultAvailable !== 'true' || kind.value !== '0';
+      if (password.disabled) password.value = '';
+    };
+    kind.addEventListener('change', updatePasswordField);
+    updatePasswordField();
+  }
   const dialog = document.getElementById('vault-auth');
   if (!dialog) return;
   const form = document.getElementById('vault-auth-form');
   const authInput = document.getElementById('vault-reauth-password');
   const error = document.getElementById('vault-auth-error');
   const feedback = document.getElementById('vault-feedback');
+  document.querySelectorAll('[data-copy-username]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        if (!window.isSecureContext || !navigator.clipboard) throw new Error('clipboard');
+        await navigator.clipboard.writeText(button.dataset.copyUsername);
+        feedback.textContent = 'Usuário copiado.';
+      } catch (_) {
+        feedback.textContent = 'Não foi possível copiar. Confira as permissões da área de transferência.';
+      }
+    });
+  });
   let selected = null;
   let controller = null;
   let pending = false;

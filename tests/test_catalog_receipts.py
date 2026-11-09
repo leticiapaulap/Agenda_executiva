@@ -42,19 +42,22 @@ class CatalogTests(unittest.TestCase):
         self.assertIsNone(service.get_entry(entry_id))
 
     def test_credential_fields_and_unsafe_urls_rejected(self):
-        for field in ('password', 'encrypted_password', 'username', 'email', 'token'):
+        for field in ('password', 'encrypted_password', 'email', 'token'):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 self.service.save_entry({'name': 'Portal', field: 'never-store-me'})
+        entry_id = self.service.save_entry({'name': 'Portal', 'username': 'pessoa@example.test'})
+        self.assertEqual('pessoa@example.test', self.service.get_entry(entry_id)['username'])
+        self.assertEqual([entry_id], [entry['id'] for entry in self.service.list_entries('pessoa@')])
         for url in ('javascript:alert(1)', 'https://user:pass@example.org',
                     'https://example.org?token=secret', 'https://example.org/#secret',
                     'https://example.org/\n', 'https://example.org\\@evil.org'):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 self.service.save_entry({'name': 'Portal', 'url': url})
-        self.assertEqual([], self.service.list_entries())
+        self.assertEqual([entry_id], [entry['id'] for entry in self.service.list_entries()])
         with closing(sqlite3.connect(self.path)) as connection:
             columns = {row[1] for row in connection.execute('PRAGMA table_info(access_catalog)')}
         self.assertEqual({'id', 'name', 'url', 'category', 'notes', 'updated_at',
-                          'password_ciphertext', 'is_corporate'}, columns)
+                          'username', 'password_ciphertext', 'is_corporate'}, columns)
 
 
 class ReceiptTests(unittest.TestCase):
@@ -195,6 +198,8 @@ class AdditiveWebMigrationTests(unittest.TestCase):
             self.assertIn('CREATE TABLE bills', result.output)
             self.assertIn('CREATE TABLE access_catalog', result.output)
             self.assertIn('0003_access_catalog', result.output)
+            self.assertIn('0008_access_username', result.output)
+            self.assertIn('ADD COLUMN username', result.output)
             self.assertIn('CREATE TABLE users', result.output)
             self.assertIn('ALTER TABLE events', result.output)
             self.assertNotIn('DROP TABLE', result.output)

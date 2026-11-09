@@ -15,7 +15,7 @@ from werkzeug.security import generate_password_hash
 from werkzeug.serving import WSGIRequestHandler, make_server
 
 from webapp import create_app
-from webapp.models import db
+from webapp.models import User, db
 
 
 EDGE = Path('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe')
@@ -61,9 +61,18 @@ def run():
                     page.locator('input[name="username"]').fill('browser-test')
                     page.locator('input[name="password"]').fill(manager_password)
                     page.locator('button[type="submit"]').click()
-                    page.goto(origin + '/vault')
+                    expect(page.get_by_role('heading', name='Bom dia', exact=True)).to_be_visible()
+                    with app.app_context():
+                        user = db.session.query(User).filter_by(email='browser-test').one()
+                        user.vault_access = True
+                        db.session.commit()
+                    page.reload()
+                    page.locator('nav').get_by_role('link', name='Senhas', exact=False).click()
+                    expect(page.get_by_role('heading', name='Senhas', exact=True)).to_be_visible()
                     form = page.locator('form[action="/vault"][method="post"]')
+                    expect(form.locator('input[name="password"]')).to_be_disabled()
                     form.locator('input[name="name"]').fill('Pessoal de teste no navegador')
+                    form.locator('input[name="username"]').fill('browser-user@example.test')
                     form.locator('input[name="url"]').fill('https://example.org/login')
                     form.locator('select[name="is_corporate"]').select_option('0')
                     form.locator('input[name="password"]').fill(entry_password)
@@ -74,6 +83,12 @@ def run():
                     expect(record.locator('[data-vault-value]')).to_have_text(MASK)
                     assert entry_password not in page.content()
                     assert manager_password not in page.content()
+                    record.get_by_role('button', name='Copiar usuário').click()
+                    expect(page.locator('#vault-feedback')).to_have_text('Usuário copiado.')
+                    assert page.evaluate('navigator.clipboard.readText()') == 'browser-user@example.test'
+                    page.locator('form.filter-bar input[name="q"]').fill('browser-user@example.test')
+                    page.locator('form.filter-bar button').click()
+                    expect(page.locator('article.record')).to_have_count(1)
                     response = context.request.get(origin + '/vault')
                     assert response.status == 200 and entry_password not in response.text()
                     # Reveal: wrong reauthentication must never change the masked card.
@@ -82,7 +97,7 @@ def run():
                     expect(dialog).to_be_visible()
                     page.locator('#vault-reauth-password').fill('incorrect-password')
                     dialog.get_by_role('button', name='Confirmar', exact=True).click()
-                    expect(page.locator('#vault-auth-error')).to_contain_text('inválida')
+                    expect(page.locator('#vault-auth-error')).to_contain_text('incorreta')
                     expect(record.locator('[data-vault-value]')).to_have_text(MASK)
                     page.locator('#vault-reauth-password').fill(manager_password)
                     dialog.get_by_role('button', name='Confirmar', exact=True).click()
@@ -127,6 +142,9 @@ def run():
                     page.set_viewport_size({'width': 390, 'height': 844})
                     expect(record).to_be_visible()
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Mobile overflow'
+                    page.once('dialog', lambda dialog: dialog.dismiss())
+                    record.locator('form[data-confirm] button').click()
+                    expect(record).to_be_visible()
                     # Disabling the keys leaves metadata and the encrypted record intact.
                     app.config['VAULT_ENABLED'] = False
                     page.reload()
@@ -134,6 +152,15 @@ def run():
                     expect(record.get_by_role('button', name='Visualizar senha')).to_be_disabled()
                     expect(record.get_by_role('button', name='Copiar senha', exact=True)).to_be_disabled()
                     assert entry_password not in page.content()
+                    app.config['VAULT_ENABLED'] = True
+                    page.reload()
+                    record = page.locator('article.record').filter(has_text='Pessoal de teste no navegador')
+                    page.once('dialog', lambda dialog: dialog.accept())
+                    record.locator('form[data-confirm] button').click()
+                    expect(page.get_by_text('Nenhum acesso encontrado')).to_be_visible()
+                    with app.app_context():
+                        from webapp.catalog import AccessEntry
+                        assert db.session.query(AccessEntry).count() == 0
                     assert not errors, 'The browser reported a JavaScript error.'
                     # Clear test data from the host clipboard before closing the context.
                     page.evaluate('navigator.clipboard.writeText("")')

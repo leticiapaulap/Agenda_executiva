@@ -15,10 +15,10 @@ from agenda.finance import FinanceService
 from .auth import AuthenticationUnavailable, authenticate, bootstrap_legacy_admin, login_attempt_for
 from .finance_repository import WebFinanceRepository
 from .exports import export_ics, export_pdf, export_xlsx, resolve_period
-from .models import (Event, LoginAttempt, ManualReminder, ReminderState, Task,
+from .models import (Event, LoginAttempt, ManualReminder, ReminderState,
                      User, db, utc_now)
 from .permissions import (can_edit_record, can_read_finance, can_write_agenda,
-                         can_edit_task, can_write_finance, require_agenda_read,
+                         can_write_finance, require_agenda_read,
                          require_task_write)
 from .repository import PostgresRepository
 from .reminders import (SAO_PAULO, bill_alert, event_alert, from_utc_naive,
@@ -179,17 +179,18 @@ def dashboard():
     today = date.today()
     repo = PostgresRepository()
     upcoming = repo.list_events(start=today.isoformat(), status='Pendentes')[:5]
-    pending_tasks = repo.list_tasks(status='Pendentes')[:5]
     today_events = repo.list_events(start=today.isoformat(), end=today.isoformat())
     counts = {
         'today': len(today_events),
         'pending_events': len(repo.list_events(status='Pendentes')),
-        'pending_tasks': len(repo.list_tasks(status='Pendentes')),
         'urgent': db.session.scalar(select(func.count(Event.id)).where(
             Event.completed == 0, Event.priority == 'Urgente')) or 0,
     }
+    if current_user.can_access_vault:
+        from .catalog import AccessEntry
+        counts['vault_entries'] = db.session.scalar(select(func.count(AccessEntry.id))) or 0
     return render_template('dashboard.html', today=today, upcoming=upcoming,
-                           tasks=pending_tasks, counts=counts)
+                           counts=counts)
 
 
 @bp.route('/events', methods=['GET', 'POST'])
@@ -394,8 +395,7 @@ def calendar():
                 tasks_by_day.setdefault(task['due_date'], []).append(
                     {'type': 'task', 'time': '', 'title': task['title'],
                      'priority': task['priority'], 'url': url_for(
-                         'web.tasks', edit=task['id']) if can_edit_task(task)
-                         else url_for('web.task_details', task_id=task['id'])})
+                         'web.task_details', task_id=task['id'])})
     bills_by_day = {}
     if can_read_finance():
         try:
@@ -431,66 +431,34 @@ def calendar():
 
 @bp.route('/tasks', methods=['GET', 'POST'])
 def tasks():
-    task = None
+    """Keep old bookmarks working without repurposing or changing task data."""
     if request.method == 'POST':
         require_task_write()
-        task_id = request.form.get('task_id', '').strip()
-        try:
-            if len(request.form.get('title', '').strip()) > 200:
-                raise ValueError('O título da tarefa não pode ultrapassar 200 caracteres.')
-            if len(request.form.get('description', '')) > 5000:
-                raise ValueError('A descrição da tarefa não pode ultrapassar 5.000 caracteres.')
-            _service().save_task(request.form.to_dict(), task_id=int(task_id) if task_id else None)
-            db.session.commit()
-            flash('Tarefa salva com sucesso.', 'success')
-            return redirect(url_for('web.tasks'))
-        except ValueError as exc:
-            db.session.rollback()
-            flash(str(exc), 'error')
-            task = {**request.form.to_dict(), 'id': task_id}
-        except Exception:
-            db.session.rollback()
-            current_app.logger.exception('Falha ao salvar tarefa')
-            flash('Não foi possível salvar a tarefa. O erro foi registrado.', 'error')
-            task = {**request.form.to_dict(), 'id': task_id}
-    if task is None:
-        task_id = request.args.get('edit', type=int)
-        task = PostgresRepository().get_task(task_id) if task_id else None
-        if task_id and task is None:
-            abort(404)
+        abort(410, description='A seção Tarefas foi substituída por Senhas. Os registros antigos foram preservados para consulta.')
+    return redirect(url_for('catalog.entries'))
+
+
+@bp.get('/tasks/archive')
+@login_required
+def archived_tasks():
+    if current_user.role != 'admin':
+        abort(403)
     query = request.args.get('q', '').strip()[:100]
-    status = request.args.get('status', 'Pendentes')
-    priority = request.args.get('priority', 'Todas')
-    rows = PostgresRepository().list_tasks(query, status, priority)
-    return render_template('tasks.html', tasks=rows, task=task or {
-        'title': '', 'description': '', 'due_date': '', 'priority': 'Normal'},
-        query=query, status=status, priority=priority, priorities=PRIORITIES)
+    rows = PostgresRepository().list_tasks(query, 'Todos', 'Todas')
+    return render_template('archived_tasks.html', tasks=rows, query=query)
 
 
 @bp.post('/tasks/<int:task_id>/toggle')
 def toggle_task(task_id):
-    try:
-        PostgresRepository().toggle_task(task_id)
-        db.session.commit()
-        flash('Situação da tarefa atualizada.', 'success')
-    except ValueError as exc:
-        db.session.rollback()
-        flash(str(exc), 'error')
-    return redirect(request.referrer if _safe_next(request.referrer) else url_for('web.tasks'))
+    require_task_write()
+    abort(410, description='As tarefas antigas estão disponíveis somente para consulta.')
 
 
 @bp.post('/tasks/<int:task_id>/delete')
 def delete_task(task_id):
     if current_user.role != 'admin':
         abort(403)
-    try:
-        PostgresRepository().delete_task(task_id)
-        db.session.commit()
-        flash('Tarefa excluída.', 'success')
-    except ValueError as exc:
-        db.session.rollback()
-        flash(str(exc), 'error')
-    return redirect(url_for('web.tasks'))
+    abort(410, description='As tarefas antigas estão disponíveis somente para consulta.')
 
 
 @bp.get('/reminders')
@@ -552,7 +520,7 @@ def reminders(manual_errors=None):
                 'priority': task['priority'], 'due_at': due_at,
                 'due_date': task_due or original_due, 'completed': bool(task['completed']),
                 'url': url_for('web.task_details', task_id=task['id']),
-                'actions': can_edit_task(task),
+                'actions': False,
             })
     states = {
         (state.item_type, state.item_id): state
@@ -734,8 +702,7 @@ def update_reminder(item_type, item_id, action):
                 abort(404)
             if action == 'complete':
                 require_task_write()
-                if record['completed']:
-                    abort(409)
+                abort(410, description='As tarefas antigas estão disponíveis somente para consulta.')
         elif item_type == 'bill':
             record = FinanceService(WebFinanceRepository()).get_bill(item_id)
             if not record:
@@ -765,9 +732,6 @@ def update_reminder(item_type, item_id, action):
         elif item_type == 'event':
             state.snoozed_until = None
             PostgresRepository().toggle_event(record['id'])
-        elif item_type == 'task':
-            state.snoozed_until = None
-            PostgresRepository().toggle_task(record['id'])
     db.session.commit()
     flash('Alerta atualizado.', 'success')
     return redirect(url_for('web.reminders'))
@@ -792,8 +756,7 @@ def calendar_date(date_value):
                  'url': url_for('web.edit_event', event_id=row['id']) if can_edit_record(row)
                  else url_for('web.event_details', event_id=row['id'])} for row in events]
                + [{'type': 'Tarefa', 'time': '', 'title': row['title'],
-                   'url': url_for('web.tasks', edit=row['id']) if can_edit_task(row)
-                   else url_for('web.task_details', task_id=row['id'])} for row in tasks]
+                   'url': url_for('web.task_details', task_id=row['id'])} for row in tasks]
                + [{'type': 'Conta', 'time': '', 'title': f"{row['title']} · R$ {row['amount']}",
                    'url': url_for('finance.edit_bill', bill_id=row['id'])} for row in bills])
     return render_template('calendar_date.html', selected=selected, entries=entries)
@@ -835,6 +798,6 @@ def task_details(task_id):
                                    ('Prioridade', task['priority']),
                                    ('Situação', 'Concluída' if task['completed'] else 'Pendente'),
                                    ('Descrição', task['description'] or '—')),
-                           edit_url=url_for('web.tasks', edit=task_id)
-                           if current_user.role in ('admin', 'manager') else None,
-                           back_url=url_for('web.tasks'))
+                           edit_url=None,
+                           back_url=url_for('web.archived_tasks') if current_user.role == 'admin'
+                           else url_for('web.search'))

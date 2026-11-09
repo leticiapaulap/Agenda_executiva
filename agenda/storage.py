@@ -14,7 +14,7 @@ import tempfile
 
 APP_DIR = Path.home() / 'AgendaExecutiva'
 DB_PATH = APP_DIR / 'agenda.db'
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 EVENT_COLUMNS = (
     'title', 'event_date', 'event_time', 'category', 'location', 'notes',
     'reminder_minutes', 'completed', 'description', 'end_time', 'priority',
@@ -85,6 +85,8 @@ class Database:
         modern_tables = {'access_catalog', 'bill_series', 'bills', 'bill_payments', 'bill_reminder_log'}
         if connection.execute('PRAGMA user_version').fetchone()[0] >= 4:
             required['access_catalog'] |= {'password_ciphertext', 'is_corporate'}
+        if connection.execute('PRAGMA user_version').fetchone()[0] >= 5:
+            required['access_catalog'].add('username')
         if connection.execute('PRAGMA user_version').fetchone()[0] >= 3 and not modern_tables.issubset(objects):
             raise ValueError('O banco atualizado está incompleto: faltam tabelas de acessos ou contas.')
         for table, expected in required.items():

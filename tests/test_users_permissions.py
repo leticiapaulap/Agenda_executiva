@@ -385,6 +385,7 @@ class UserPermissionsTests(unittest.TestCase):
             admin = db.session.query(User).filter_by(role='admin').one()
             self.assertFalse(admin.vault_access)
         self.assertEqual(403, self.client.get('/vault').status_code)
+        self.assertEqual(200, self.client.get('/tasks/archive').status_code)
         self.assertEqual(302, self.create_user().status_code)
         self.assertEqual(302, self.create_user(
             name='Leitor de teste', email='leitor@example.test', role='reader',
@@ -421,28 +422,36 @@ class UserPermissionsTests(unittest.TestCase):
         response = manager.post('/events/new', data=self.event_form(manager, 'Gestor cria compromisso'))
         self.assertEqual(302, response.status_code)
         task_form = {
-            'csrf_token': self.csrf('/tasks', manager), 'title': 'Tarefa editada pelo gestor',
+            'csrf_token': self.csrf('/events', manager), 'title': 'Tarefa editada pelo gestor',
             'description': '', 'priority': 'Alta', 'due_date': '',
         }
-        self.assertEqual(302, manager.post('/tasks', data=task_form).status_code)
+        self.assertEqual(410, manager.post('/tasks', data=task_form).status_code)
         task_form = {
-            'csrf_token': self.csrf(f'/tasks?edit={task_id}', manager), 'task_id': str(task_id),
+            'csrf_token': self.csrf('/events', manager), 'task_id': str(task_id),
             'title': 'Atualização de tarefa existente', 'description': '',
             'priority': 'Alta', 'due_date': '',
         }
-        self.assertEqual(302, manager.post('/tasks', data=task_form).status_code)
+        self.assertEqual(410, manager.post('/tasks', data=task_form).status_code)
+        self.assertEqual(410, manager.post(
+            f'/tasks/{task_id}/toggle', data={'csrf_token': self.csrf('/events', manager)}).status_code)
         self.assertEqual(403, manager.post(
-            f'/tasks/{task_id}/delete', data={'csrf_token': self.csrf('/tasks', manager)}).status_code)
+            f'/tasks/{task_id}/delete', data={'csrf_token': self.csrf('/events', manager)}).status_code)
         with self.app.app_context():
             owned_event = db.session.query(Event).filter_by(title='Gestor cria compromisso').one()
             self.assertEqual('gestor@example.test', db.session.get(User, owned_event.owner_id).email)
-            self.assertEqual('Atualização de tarefa existente', db.session.get(Task, task_id).title)
+            self.assertEqual('Tarefa organizacional', db.session.get(Task, task_id).title)
+            self.assertEqual(0, db.session.get(Task, task_id).completed)
+            self.assertEqual(1, db.session.query(Task).count())
 
         reader = self.app.test_client()
         self.assertEqual(302, self.login(
             'leitor@example.test', 'Senha-leitor-teste-2026!', reader).status_code)
         self.assertEqual(200, reader.get('/events').status_code)
-        self.assertEqual(200, reader.get('/tasks').status_code)
+        redirected = reader.get('/tasks')
+        self.assertEqual(302, redirected.status_code)
+        self.assertTrue(redirected.headers['Location'].endswith('/vault'))
+        self.assertEqual(200, reader.get(f'/tasks/{task_id}').status_code)
+        self.assertEqual(403, reader.get('/tasks/archive').status_code)
         self.assertEqual(403, reader.get('/users').status_code)
         self.assertEqual(403, reader.get('/bills').status_code)
         self.assertEqual(403, reader.get('/vault').status_code)
@@ -452,7 +461,7 @@ class UserPermissionsTests(unittest.TestCase):
         self.assertEqual(403, reader.post(
             '/events', data=self.event_form(reader, 'Também não permitido', csrf_path='/events')).status_code)
         self.assertEqual(403, reader.post('/tasks', data={
-            'csrf_token': self.csrf('/tasks', reader), 'title': 'Não permitido',
+            'csrf_token': self.csrf('/events', reader), 'title': 'Não permitido',
         }).status_code)
         with self.app.app_context():
             self.assertIsNone(db.session.query(Event).filter_by(title='Não permitido').one_or_none())
@@ -522,11 +531,19 @@ class UserPermissionsTests(unittest.TestCase):
             self.assertEqual(1, db.session.query(Task).count())
             self.assertEqual(1, db.session.execute(text('SELECT count(*) FROM bills')).scalar())
             self.assertEqual(1, db.session.execute(text('SELECT count(*) FROM access_catalog')).scalar())
+            self.assertEqual('', db.session.execute(text(
+                "SELECT username FROM access_catalog WHERE id='access-1'")).scalar())
             event = db.session.query(Event).one()
             self.assertIsNone(event.owner_id)
             self.assertEqual('Evento preservado', event.title)
             self.assertIsNone(db.session.query(Task).one().owner_id)
             db.session.remove()
+        self.admin()
+        archive = self.client.get('/tasks/archive')
+        self.assertEqual(200, archive.status_code)
+        self.assertIn('Tarefa preservada'.encode(), archive.data)
+        self.assertIn('Consulta somente leitura'.encode(), archive.data)
+        self.assertNotIn('Nova tarefa'.encode(), archive.data)
 
 
 if __name__ == '__main__':

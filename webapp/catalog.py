@@ -23,6 +23,7 @@ class AccessEntry(db.Model):
     id = db.Column(db.String(36), primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     url = db.Column(db.String(1000), nullable=False, default='')
+    username = db.Column(db.String(254), nullable=False, default='', server_default='')
     category = db.Column(db.String(80), nullable=False, default='')
     notes = db.Column(db.Text, nullable=False, default='')
     updated_at = db.Column(db.String(40), nullable=False)
@@ -30,7 +31,7 @@ class AccessEntry(db.Model):
     is_corporate = db.Column(db.Integer, nullable=False, default=1, server_default='1')
 
 
-PUBLIC_FIELDS = ('id', 'name', 'url', 'category', 'notes', 'updated_at', 'is_corporate')
+PUBLIC_FIELDS = ('id', 'name', 'url', 'username', 'category', 'notes', 'updated_at', 'is_corporate')
 
 
 class WebCatalogRepository:
@@ -117,14 +118,22 @@ def entries():
     status = 200
     if request.method == 'POST':
         entry_id = request.form.get('entry_id') or None
-        if entry_id and not service.get_entry(entry_id):
+        entry = service.get_entry(entry_id) if entry_id else {}
+        if entry_id and not entry:
             abort(404)
-        allowed = {'csrf_token', 'entry_id', 'name', 'url', 'category', 'notes',
+        # Retain only editable metadata after validation errors; never echo either
+        # the stored password or the submitted passwords into the response HTML.
+        entry = {**entry, **{key: request.form.get(key, '') for key in
+                            ('name', 'url', 'username', 'category', 'notes')}}
+        if request.form.get('is_corporate') in ('0', '1'):
+            entry['is_corporate'] = request.form['is_corporate'] == '1'
+        allowed = {'csrf_token', 'entry_id', 'name', 'url', 'username', 'category', 'notes',
                    'password', 'is_corporate', 'clear_password', 'reauth_password'}
         try:
             if set(request.form) - allowed:
                 raise ValueError('O formulário contém campos não permitidos.')
-            values = {key: request.form.get(key, '') for key in ('name', 'url', 'category', 'notes')}
+            values = {key: request.form.get(key, '')
+                      for key in ('name', 'url', 'username', 'category', 'notes')}
             for key in ('password', 'is_corporate', 'clear_password'):
                 if key in request.form:
                     values[key] = request.form[key]
@@ -134,7 +143,7 @@ def entries():
                 failure = reauthenticate(request.form.get('reauth_password', ''))
                 if failure:
                     status, message = failure
-                    return _render_entries(service, status=status, message=message)
+                    return _render_entries(service, entry=entry, status=status, message=message)
             service.save_entry(values, entry_id)
             flash('Acesso salvo.', 'success')
             return redirect(url_for('catalog.entries'))
@@ -158,7 +167,8 @@ def _render_entries(service, entry=None, status=200, message=None):
         flash(message, 'error')
     return render_template('catalog.html', entries=service.list_entries(request.args.get('q', '')),
                            entry=entry or {}, notice=service.cipher.notice,
-                           vault_available=service.cipher.available), status
+                           vault_available=service.cipher.available,
+                           can_read_archived_tasks=current_user.role == 'admin'), status
 
 
 @bp.post('/vault/<entry_id>/secret')

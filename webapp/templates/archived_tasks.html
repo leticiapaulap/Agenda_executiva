@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Tarefas antigas preservadas{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">CONSULTA ADMINISTRATIVA</p><h1>Tarefas antigas preservadas</h1><p class="muted">Consulta somente leitura. Os registros permanecem na tabela original e não foram convertidos em acessos ou senhas.</p></div></div>
+<section class="panel">
+  <form class="filter-bar" method="get"><label class="filter-search">Pesquisar registros<input type="search" name="q" value="{{ query }}" maxlength="100"></label><button class="button secondary" type="submit">Pesquisar</button></form>
+  <div class="record-list">{% for task in tasks %}
+    <article class="record"><div class="record-main"><strong class="record-title">{{ task.title }}</strong>
+      <span>{{ task.description or 'Sem descrição' }}{% if task.due_date %} · Prazo {{ task.due_date[8:10] }}/{{ task.due_date[5:7] }}/{{ task.due_date[:4] }}{% endif %}</span></div>
+      <span class="priority {{ task.priority|lower }}">{{ task.priority }}</span>
+      <span class="status {{ 'done' if task.completed }}">{{ 'Concluída' if task.completed else 'Pendente' }}</span>
+    </article>
+  {% else %}<div class="empty-state"><strong>Nenhum registro encontrado</strong></div>{% endfor %}</div>
+</section>
+{% endblock %}

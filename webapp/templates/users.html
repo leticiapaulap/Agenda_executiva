@@ -8,7 +8,7 @@
   <article class="stat-card"><span class="stat-icon amber">◷</span><span class="stat-label">Usuários inativos</span><strong>{{ users|length - active_count }}</strong></article>
   <article class="stat-card"><span class="stat-icon blue">⚙</span><span class="stat-label">Administradores ativos</span><strong>{{ admin_count }}</strong></article>
 </div>
-<p class="muted">A agenda é compartilhada somente com pessoas autorizadas. A permissão do cofre é concedida separadamente. <a class="text-link" href="{{ url_for('users.audit') }}">Consultar auditoria</a></p>
+<p class="muted">A agenda é compartilhada somente com pessoas autorizadas. A permissão do cofre é concedida separadamente. <a class="text-link" href="{{ url_for('users.audit') }}">Consultar auditoria</a> · <a class="text-link" href="{{ url_for('web.archived_tasks') }}">Consultar tarefas antigas preservadas</a></p>
 <section class="panel table-panel"><div class="table-wrap"><table>
   <thead><tr><th>Usuário</th><th>Perfil</th><th>Permissões</th><th>Status</th><th>Criação / último acesso</th><th>Ações</th></tr></thead>
   <tbody>{% for user in users %}<tr>

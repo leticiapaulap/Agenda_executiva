@@ -9,11 +9,11 @@
     <label>E-mail / login<input name="email" value="{{ values.email }}" maxlength="254" required autocomplete="username"></label>
     <label>Perfil<select name="role">{% for key, label in roles.items() %}<option value="{{ key }}" {{ 'selected' if values.role == key }}>{{ label }}</option>{% endfor %}</select></label>
     {% if not editing %}<label>Senha inicial<input type="password" name="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>{% endif %}
-    <label class="vault-checkbox span-2"><input type="checkbox" name="agenda_access" value="1" {{ 'checked' if values.agenda_access }}>Acesso à agenda e às tarefas da organização</label>
+    <label class="vault-checkbox span-2"><input type="checkbox" name="agenda_access" value="1" {{ 'checked' if values.agenda_access }}>Acesso à agenda e aos registros antigos da organização</label>
     <label class="vault-checkbox span-2"><input type="checkbox" name="finance_access" value="1" {{ 'checked' if values.finance_access }}>Acesso às contas e aos comprovantes autorizados</label>
     <label class="vault-checkbox span-2"><input type="checkbox" name="vault_access" value="1" {{ 'checked' if values.vault_access }}>Autorização específica para o cofre (não disponível ao perfil Leitor)</label>
   </div>
-  <p class="muted">Gestores editam seus próprios compromissos e podem criar e editar tarefas. Leitores só consultam informações autorizadas. A permissão do cofre não é automática, nem mesmo para administradores. Alterações de credenciais e permissões encerram sessões anteriores.</p>
+  <p class="muted">Gestores editam seus próprios compromissos. Registros antigos são preservados para consulta. Leitores só consultam informações autorizadas. A permissão do cofre não é automática, nem mesmo para administradores. Alterações de credenciais e permissões encerram sessões anteriores.</p>
   {% if editing %}<p class="muted">Para alterar a senha ou o status, use as ações específicas na lista de usuários.</p>{% endif %}
   <label>Sua senha para confirmar a operação<input type="password" name="reauth_password" autocomplete="current-password" maxlength="1024" required></label>
   <label class="vault-checkbox"><input type="checkbox" name="confirm" value="1" required>Confirmo o cadastro ou a alteração das permissões deste usuário.</label>

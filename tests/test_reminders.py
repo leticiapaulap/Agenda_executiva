@@ -110,11 +110,10 @@ class ReminderCenterWebTests(unittest.TestCase):
                 ('Tarefa hoje', '2026-11-05', '0'),
                 ('Tarefa próxima', '2026-11-07', '0'),
                 ('Tarefa concluída', '2026-11-04', '1')):
-            response = self.client.post('/tasks', data={
-                'csrf_token': self.csrf('/tasks'), 'title': title, 'description': '',
-                'due_date': due, 'priority': 'Urgente', 'completed': completed,
-            })
-            self.assertEqual(302, response.status_code)
+            with self.app.app_context():
+                db.session.add(Task(title=title, description='', due_date=date.fromisoformat(due),
+                                    priority='Urgente', completed=int(completed)))
+                db.session.commit()
         response = self.client.post('/reminders/manual', data={
             'csrf_token': self.csrf('/reminders'), 'title': 'Lembrete independente',
             'notes': 'Persistente', 'due_at': '2026-11-06T11:30', 'priority': 'Normal',
@@ -202,11 +201,10 @@ class ReminderCenterWebTests(unittest.TestCase):
                 'reminder_minutes': '-1',
             })
             self.assertEqual(302, response.status_code)
-        response = self.client.post('/tasks', data={
-            'csrf_token': self.csrf('/tasks'), 'title': 'Tarefa no calendário',
-            'description': '', 'due_date': '2026-11-05', 'priority': 'Alta',
-        })
-        self.assertEqual(302, response.status_code)
+        with self.app.app_context():
+            db.session.add(Task(title='Tarefa no calendário', description='',
+                                due_date=date(2026, 11, 5), priority='Alta', completed=0))
+            db.session.commit()
         calendar = self.client.get('/calendar?month=2026-11-01')
         self.assertIn(b'+ 2 mais', calendar.data)
         daily = self.client.get('/calendar/date/2026-11-05')

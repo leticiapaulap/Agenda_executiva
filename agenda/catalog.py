@@ -18,12 +18,14 @@ CATALOG_NOTICE = ('Modo catálogo: o armazenamento de senhas está desativado. '
 def initialize_catalog(connection):
     connection.execute('''CREATE TABLE IF NOT EXISTS access_catalog (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL DEFAULT '',
-        category TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+        username TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
         updated_at TEXT NOT NULL,
         password_ciphertext TEXT,
         is_corporate INTEGER NOT NULL DEFAULT 1 CHECK(is_corporate IN (0,1))
         CHECK(is_corporate=0 OR password_ciphertext IS NULL))''')
     columns = {row[1] for row in connection.execute('PRAGMA table_info(access_catalog)')}
+    if 'username' not in columns:
+        connection.execute("ALTER TABLE access_catalog ADD COLUMN username TEXT NOT NULL DEFAULT ''")
     if 'password_ciphertext' not in columns:
         connection.execute('ALTER TABLE access_catalog ADD COLUMN password_ciphertext TEXT')
     if 'is_corporate' not in columns:
@@ -43,7 +45,8 @@ def _flag(value):
 def _public(row):
     if row is None:
         return None
-    result = {key: row[key] for key in ('id', 'name', 'url', 'category', 'notes', 'updated_at')}
+    result = {key: row.get(key, '') for key in
+              ('id', 'name', 'url', 'username', 'category', 'notes', 'updated_at')}
     result['has_password'] = bool(row.get('has_password', False))
     result['is_corporate'] = bool(row.get('is_corporate', True))
     return result
@@ -57,19 +60,21 @@ class AccessCatalog:
     def list_entries(self, search=''):
         needle = str(search).strip().casefold()
         return [_public(r) for r in self.repository.list_entries() if not needle or
-                needle in (r['name'] + ' ' + r['category']).casefold()]
+                needle in ' '.join((r['name'], r.get('username', ''), r['category'], r['notes'])).casefold()]
 
     def get_entry(self, entry_id):
         return _public(self.repository.get_entry(entry_id))
 
     def save_entry(self, data, entry_id=None):
-        if set(data) - {'name', 'url', 'category', 'notes', 'password', 'is_corporate', 'clear_password'}:
+        if set(data) - {'name', 'url', 'username', 'category', 'notes', 'password',
+                        'is_corporate', 'clear_password'}:
             raise ValueError('O formulário contém campos não permitidos.')
         existing = self.get_entry(entry_id) if entry_id else None
         if entry_id and existing is None:
             raise ValueError('Acesso não encontrado.')
         values = {}
-        for key, limit in [('name', 200), ('url', 1000), ('category', 80), ('notes', 2000)]:
+        for key, limit in [('name', 200), ('url', 1000), ('username', 254),
+                           ('category', 80), ('notes', 2000)]:
             raw = str(data.get(key, '') or '')
             if key == 'url' and any(ord(c) < 32 for c in raw):
                 raise ValueError('A URL contém caracteres inválidos.')
@@ -144,13 +149,13 @@ class SQLiteCatalogRepository:
 
     def list_entries(self):
         with self.database._connect() as connection:
-            return [dict(r) for r in connection.execute('''SELECT id,name,url,category,notes,updated_at,
+            return [dict(r) for r in connection.execute('''SELECT id,name,url,username,category,notes,updated_at,
                 is_corporate, CASE WHEN password_ciphertext IS NOT NULL AND password_ciphertext<>''
                 THEN 1 ELSE 0 END AS has_password FROM access_catalog ORDER BY name,id''')]
 
     def get_entry(self, entry_id):
         with self.database._connect() as connection:
-            row = connection.execute('''SELECT id,name,url,category,notes,updated_at,is_corporate,
+            row = connection.execute('''SELECT id,name,url,username,category,notes,updated_at,is_corporate,
                 CASE WHEN password_ciphertext IS NOT NULL AND password_ciphertext<>''
                 THEN 1 ELSE 0 END AS has_password FROM access_catalog WHERE id=?''', (entry_id,)).fetchone()
             return dict(row) if row else None
@@ -162,7 +167,8 @@ class SQLiteCatalogRepository:
             return row[0] if row else None
 
     def save_entry(self, values, entry_id=None):
-        allowed = {'id', 'name', 'url', 'category', 'notes', 'updated_at', 'is_corporate', 'password_ciphertext'}
+        allowed = {'id', 'name', 'url', 'username', 'category', 'notes', 'updated_at',
+                   'is_corporate', 'password_ciphertext'}
         if not values or set(values) - allowed or ('id' in values and entry_id):
             raise ValueError('Dados de acesso inválidos.')
         with self.database._connect() as connection:
