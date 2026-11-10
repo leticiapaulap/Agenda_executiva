@@ -8,6 +8,7 @@ import secrets
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
@@ -302,9 +303,63 @@ class WebVaultTests(unittest.TestCase):
                                          'name': 'Editado', 'password': 'Atualizada-!26',
                                          'is_corporate': '0', 'reauth_password': ADMIN_PASSWORD})
         self.assertEqual('Atualizada-!26', self.secret(entry_id, action='copy').get_json()['password'])
-        self.client.post(f'/vault/{entry_id}/delete', data={'csrf_token': self.token('/vault')})
+        self.client.post(f'/vault/{entry_id}/delete', data={
+            'csrf_token': self.token('/vault'), 'confirm': '1'})
         with self.app.app_context():
             self.assertIsNone(db.session.get(AccessEntry, entry_id))
+
+    def test_delete_requires_explicit_confirmation_without_exposing_or_decrypting_secret(self):
+        entry_id = self.seed(name='<script>Private service</script>')
+        self.login()
+        path = f'/vault/{entry_id}/delete'
+        with self.app.app_context():
+            original = db.session.get(AccessEntry, entry_id).password_ciphertext
+        with patch.object(VaultCipher, 'decrypt', side_effect=AssertionError('Unexpected decryption')):
+            response = self.client.get(path)
+            self.assertEqual(200, response.status_code)
+            self.assertIn(b'&lt;script&gt;Private service&lt;/script&gt;', response.data)
+            self.assertNotIn(b'<script>Private service</script>', response.data)
+            self.assertNotIn(SECRET.encode(), response.data)
+            self.assertNotIn(original.encode(), response.data)
+            self.assertIn('no-store', response.headers['Cache-Control'])
+            self.assertIn(b'name="confirm" value="1"', response.data)
+            for confirmation in ('', '0', 'true'):
+                response = self.client.post(path, data={
+                    'csrf_token': self.token(path), 'confirm': confirmation})
+                self.assertEqual(400, response.status_code)
+                with self.app.app_context():
+                    self.assertEqual(original, db.session.get(AccessEntry, entry_id).password_ciphertext)
+            self.assertEqual(400, self.client.post(path, data={'confirm': '1'}).status_code)
+            # Following Cancel only returns to the list and never writes to storage.
+            self.assertEqual(200, self.client.get('/vault').status_code)
+            with self.app.app_context():
+                self.assertEqual(original, db.session.get(AccessEntry, entry_id).password_ciphertext)
+            # Metadata and confirmation still work if the encryption key is unavailable.
+            self.app.config['VAULT_ENABLED'] = False
+            response = self.client.post(path, data={'csrf_token': self.token(path), 'confirm': '1'})
+            self.assertEqual(302, response.status_code)
+            with self.app.app_context():
+                self.assertIsNone(db.session.get(AccessEntry, entry_id))
+            self.assertEqual(404, self.client.get(path).status_code)
+
+    def test_delete_confirmation_requires_login_and_vault_permission(self):
+        entry_id = self.seed()
+        path = f'/vault/{entry_id}/delete'
+        response = self.client.get(path)
+        self.assertEqual(302, response.status_code)
+        self.assertIn('/login', response.headers['Location'])
+        self.login()
+        token = self.token(path)
+        with self.app.app_context():
+            from webapp.models import User
+            user = db.session.query(User).filter_by(email='test').one()
+            user.vault_access = False
+            db.session.commit()
+        self.assertEqual(403, self.client.get(path).status_code)
+        self.assertEqual(403, self.client.post(path, data={
+            'csrf_token': token, 'confirm': '1'}).status_code)
+        with self.app.app_context():
+            self.assertIsNotNone(db.session.get(AccessEntry, entry_id))
 
     def test_password_page_requires_explicit_vault_permission_and_sidebar_targets_senhas(self):
         response = self.client.get('/vault')
@@ -432,18 +487,65 @@ class WebVaultTests(unittest.TestCase):
         self.app.config['VAULT_KEYS'] = self.config['VAULT_KEYS']
         self.assertEqual(SECRET, self.secret(entry_id).get_json()['password'])
 
-    def test_corporate_storage_denied_and_disabled_vault_remains_catalog(self):
+    def test_corporate_passwords_use_existing_cipher_and_require_reauthentication(self):
         self.login()
-        response = self.client.post('/vault', data={'csrf_token': self.token('/vault'),
-            'name': 'Corporativo', 'password': SECRET, 'is_corporate': '1', 'reauth_password': ADMIN_PASSWORD})
-        self.assertEqual(400, response.status_code)
+        values = {'csrf_token': self.token('/vault'), 'name': 'Corporativo',
+                  'username': 'corporate@example.test', 'password': SECRET, 'is_corporate': '1'}
+        self.assertEqual(401, self.client.post('/vault', data=values).status_code)
         with self.app.app_context():
             self.assertEqual(0, db.session.query(AccessEntry).count())
+        values['reauth_password'] = ADMIN_PASSWORD
+        self.assertEqual(302, self.client.post('/vault', data=values).status_code)
+        with self.app.app_context():
+            row = db.session.query(AccessEntry).one()
+            entry_id, encrypted = row.id, row.password_ciphertext
+            self.assertEqual(1, row.is_corporate)
+            self.assertEqual(SECRET, VaultCipher(self.config).decrypt(encrypted, entry_id))
+        for path in ('/vault', f'/vault?edit={entry_id}', '/vault?q=corporate'):
+            response = self.client.get(path)
+            self.assertEqual(200, response.status_code)
+            self.assertNotIn(SECRET.encode(), response.data)
+            self.assertNotIn(encrypted.encode(), response.data)
+        self.assertEqual(SECRET, self.secret(entry_id).get_json()['password'])
+        self.assertEqual(401, self.secret(entry_id, action='copy', password='').status_code)
+        self.assertEqual(SECRET, self.secret(entry_id, action='copy').get_json()['password'])
+        self.assertEqual(302, self.client.post('/vault', data={
+            'csrf_token': self.token('/vault'), 'entry_id': entry_id, 'name': 'Corporativo editado',
+            'password': '', 'is_corporate': '1', 'notes': 'Metadados atualizados',
+        }).status_code)
+        with self.app.app_context():
+            row = db.session.get(AccessEntry, entry_id)
+            self.assertEqual(1, row.is_corporate)
+            self.assertEqual(encrypted, row.password_ciphertext)
+        old_keys = json.loads(self.config['VAULT_KEYS'])
+        self.app.config.update(vault_config({**old_keys, 'v2': test_key()}, active='v2'))
+        result = self.app.test_cli_runner().invoke(args=['vault-rotate', '--apply'])
+        self.assertEqual(0, result.exit_code, result.output)
+        self.assertNotIn(SECRET, result.output)
+        with self.app.app_context():
+            self.assertTrue(db.session.get(AccessEntry, entry_id).password_ciphertext.startswith('v1:v2:'))
+            previous = db.session.get(AccessEntry, entry_id).password_ciphertext
+            service = AccessCatalog(WebCatalogRepository(), VaultCipher(self.app.config),
+                                    allow_corporate_passwords=True)
+            service.rotate_password(entry_id)
+            self.assertNotEqual(previous, db.session.get(AccessEntry, entry_id).password_ciphertext)
+        self.assertEqual(SECRET, self.secret(entry_id).get_json()['password'])
+        self.assertEqual(302, self.client.post('/vault', data={
+            'csrf_token': self.token('/vault'), 'entry_id': entry_id, 'name': 'Corporativo editado',
+            'clear_password': '1', 'reauth_password': ADMIN_PASSWORD, 'is_corporate': '1',
+        }).status_code)
+        with self.app.app_context():
+            self.assertIsNone(db.session.get(AccessEntry, entry_id).password_ciphertext)
+
+    def test_disabled_vault_remains_catalog_for_both_classifications(self):
+        self.login()
         self.app.config['VAULT_ENABLED'] = False
-        response = self.client.post('/vault', data={'csrf_token': self.token('/vault'),
-            'name': 'Pessoal', 'password': SECRET, 'is_corporate': '0', 'reauth_password': ADMIN_PASSWORD})
-        self.assertEqual(400, response.status_code)
-        self.assertNotIn(SECRET.encode(), response.data)
+        for classification in ('0', '1'):
+            response = self.client.post('/vault', data={'csrf_token': self.token('/vault'),
+                'name': 'Acesso', 'password': SECRET, 'is_corporate': classification,
+                'reauth_password': ADMIN_PASSWORD})
+            self.assertEqual(400, response.status_code)
+            self.assertNotIn(SECRET.encode(), response.data)
         response = self.client.post('/vault', data={'csrf_token': self.token('/vault'), 'name': 'Só catálogo'})
         self.assertEqual(302, response.status_code)
 

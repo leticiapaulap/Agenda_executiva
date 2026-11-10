@@ -2,14 +2,9 @@
 document.addEventListener('DOMContentLoaded', () => {
   const editor = document.querySelector('[data-vault-editor]');
   if (editor) {
-    const kind = editor.querySelector('[name="is_corporate"]');
     const password = editor.querySelector('[name="password"]');
-    const updatePasswordField = () => {
-      password.disabled = editor.dataset.vaultAvailable !== 'true' || kind.value !== '0';
-      if (password.disabled) password.value = '';
-    };
-    kind.addEventListener('change', updatePasswordField);
-    updatePasswordField();
+    password.disabled = editor.dataset.vaultAvailable !== 'true';
+    if (password.disabled) password.value = '';
   }
   const dialog = document.getElementById('vault-auth');
   if (!dialog) return;

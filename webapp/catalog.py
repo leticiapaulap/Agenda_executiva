@@ -1,12 +1,10 @@
-"""Directory and opt-in encrypted personal vault. Never serialize ciphertext."""
+"""Directory and authorized personal/corporate vault. Never serialize ciphertext."""
 from uuid import uuid4
 
 from flask import (Blueprint, abort, current_app, flash, jsonify, redirect,
                    render_template, request, url_for)
-from flask_login import current_user, login_fresh, login_required
+from flask_login import current_user, login_required
 from sqlalchemy import CheckConstraint, case, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from agenda.catalog import AccessCatalog
 from agenda.vault import VaultCipher, VaultError
@@ -18,7 +16,6 @@ class AccessEntry(db.Model):
     __tablename__ = 'access_catalog'
     __table_args__ = (
         CheckConstraint('is_corporate IN (0,1)', name='ck_access_catalog_is_corporate'),
-        CheckConstraint('is_corporate=0 OR password_ciphertext IS NULL', name='ck_access_catalog_password_scope'),
     )
     id = db.Column(db.String(36), primary_key=True)
     name = db.Column(db.String(200), nullable=False)
@@ -61,9 +58,6 @@ class WebCatalogRepository:
             row = AccessEntry(id=values.get('id') or str(uuid4()))
         for key, value in values.items():
             setattr(row, key, value)
-        # Check the final policy under the row lock, including concurrent edits.
-        if row.is_corporate and row.password_ciphertext:
-            raise ValueError('Acessos corporativos permanecem somente no catálogo.')
         db.session.add(row)
         db.session.commit()
         return row.id
@@ -71,8 +65,8 @@ class WebCatalogRepository:
     def compare_and_swap_secret(self, entry_id, expected, replacement):
         from sqlalchemy import update
         result = db.session.execute(update(AccessEntry).where(
-            AccessEntry.id == entry_id, AccessEntry.password_ciphertext == expected,
-            AccessEntry.is_corporate == 0).values(password_ciphertext=replacement))
+            AccessEntry.id == entry_id, AccessEntry.password_ciphertext == expected
+        ).values(password_ciphertext=replacement))
         db.session.commit()
         return result.rowcount == 1
 
@@ -94,7 +88,8 @@ def require_vault_permission():
 
 
 def catalog_service():
-    return AccessCatalog(WebCatalogRepository(), VaultCipher(current_app.config))
+    return AccessCatalog(WebCatalogRepository(), VaultCipher(current_app.config),
+                         allow_corporate_passwords=True)
 
 
 def reauthenticate(password):
@@ -166,7 +161,9 @@ def _render_entries(service, entry=None, status=200, message=None):
     if message:
         flash(message, 'error')
     return render_template('catalog.html', entries=service.list_entries(request.args.get('q', '')),
-                           entry=entry or {}, notice=service.cipher.notice,
+                           entry=entry or {}, notice=(
+                               'Cofre habilitado para acessos pessoais e corporativos autorizados.'
+                               if service.cipher.available else service.cipher.notice),
                            vault_available=service.cipher.available,
                            can_read_archived_tasks=current_user.role == 'admin'), status
 
@@ -183,8 +180,6 @@ def secret(entry_id):
         entry = service.get_entry(entry_id)
         if not entry:
             return jsonify(error='Acesso não encontrado.'), 404
-        if entry['is_corporate']:
-            return jsonify(error='Acessos corporativos permanecem somente no catálogo.'), 403
         if not service.cipher.available:
             return jsonify(error='O cofre está indisponível. Verifique a configuração com o administrador.'), 503
         failure = reauthenticate(data.get('reauth_password', ''))
@@ -201,12 +196,17 @@ def secret(entry_id):
         return jsonify(error='Não foi possível acessar a senha.'), 503
 
 
-@bp.post('/vault/<entry_id>/delete')
+@bp.route('/vault/<entry_id>/delete', methods=['GET', 'POST'])
 @login_required
 def delete_entry(entry_id):
     service = catalog_service()
-    if not service.get_entry(entry_id):
+    entry = service.get_entry(entry_id)
+    if not entry:
         abort(404)
+    # Confirmation is a separate, non-destructive step even without JavaScript.
+    if request.method == 'GET' or request.form.get('confirm') != '1':
+        status = 200 if request.method == 'GET' else 400
+        return render_template('catalog_delete.html', entry=entry), status
     try:
         service.delete_entry(entry_id)
         flash('Acesso excluído.', 'success')

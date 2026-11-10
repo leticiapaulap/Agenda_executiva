@@ -6,7 +6,7 @@ A seção web **Senhas** substitui Tarefas no menu e reutiliza o cofre existente
 
 O campo **Senha é opcional**. Na edição ele começa vazio: deixar vazio mantém a senha atual; preencher substitui; a opção explícita de remoção apaga somente a senha. Salvar/substituir/remover exige reautenticação na interface, assim como revelar ou copiar. A senha nunca é preenchida no HTML inicial ou nas consultas de listagem/edição.
 
-Esta versão atende **acessos pessoais autorizados de usuários que receberam permissão para o cofre**. A classificação dos acessos e as senhas já cifradas são preservadas; catálogos anteriores à implementação do cofre receberam a classificação **Corporativo / somente catálogo**, sem senha, na migração `0004_vault_passwords`. Para um acesso pessoal, selecione explicitamente **Pessoal · armazenamento autorizado**. Acessos corporativos continuam sem armazenamento de senha, independentemente das chaves configuradas. Não reclassifique uma credencial corporativa como pessoal para contornar essa política.
+A versão web atende **acessos pessoais e corporativos de usuários com permissão explícita para o cofre**. A habilitação de senhas corporativas foi autorizada para esta atualização. Ambos os tipos usam a mesma tabela, criptografia e reautenticação; nenhum perfil recebe acesso automaticamente. A classificação dos acessos e as senhas já cifradas são preservadas. Registros corporativos existentes continuam sem senha até uma gravação explícita e reautenticada; não há preenchimento ou conversão automática. O desktop independente mantém sua política anterior de senhas somente pessoais.
 
 O formulário contém serviço/sistema, usuário/e-mail, senha, URL, categoria e observações. Usuário/e-mail são metadados visíveis aos usuários autorizados do cofre e podem ser pesquisados e copiados. Senhas pertencem somente ao campo próprio; não as coloque em nome, URL, categoria ou observações. A URL continua limitada a HTTP/HTTPS, sem usuário, senha, parâmetros ou fragmentos.
 
@@ -16,7 +16,7 @@ Não altere `SECRET_KEY` nem `DATABASE_URL` para configurar o cofre. `ADMIN_USER
 
 | Variável existente do cofre | Valor necessário |
 |---|---|
-| `VAULT_ENABLED` | `true` somente após autorizar o armazenamento de acessos pessoais; padrão `false` |
+| `VAULT_ENABLED` | `true` para habilitar o armazenamento autorizado de senhas; padrão `false` |
 | `VAULT_KEYS` | JSON com versões e chaves aleatórias de **32 bytes**, codificadas em Base64 URL-safe: objeto no formato `{"v1":"<chave gerada>"}` |
 | `VAULT_ACTIVE_KEY_ID` | Identificador da chave para novas gravações, inicialmente `v1`; deve existir no JSON |
 
@@ -47,6 +47,8 @@ Configure o hash e o conjunto de chaves no ambiente do processo desktop, restrit
 
 Na web, cada operação `POST /vault/<id>/secret` exige sessão autenticada e recente, token CSRF e senha atual do usuário autorizado. Aceita `action=reveal` ou `action=copy`. É a **única resposta HTTP que devolve a senha em texto puro**, para o navegador autorizado realizar a ação. Não existe listagem JSON de senhas. Login/CSRF são exigidos também nos cadastros e exclusões. A senha de reautenticação não é guardada na sessão ou no banco.
 
+Excluir abre uma página de confirmação com o nome do serviço, sem descriptografar a senha. **Cancelar** apenas retorna à lista. A exclusão exige `POST /vault/<id>/delete`, CSRF válido, permissão para o cofre e confirmação explícita (`confirm=1`); um GET nunca exclui e um POST sem confirmação é recusado com HTTP 400. Esse fluxo funciona também sem JavaScript.
+
 Cinco falhas de reautenticação bloqueiam novas tentativas por 15 minutos, com estado persistido por usuário no banco, independentemente do endereço de origem e de reiniciar o serviço. O desktop possui controle equivalente persistido em `settings`. Um novo login não constitui dispensa de reautenticação do cofre.
 
 As respostas do cofre usam `Cache-Control: no-store`, `Pragma: no-cache` e `Referrer-Policy: strict-origin-when-cross-origin`. Essa política mantém o `Referer` de mesma origem necessário à validação CSRF em HTTPS, sem enviar caminhos completos a outros domínios. A interface usa `textContent`, não injeta HTML contendo senha. A exibição é mascarada após 30 segundos e ao deixar a página/seção. Campos de autenticação são limpos ao concluir/cancelar. Falhas de autenticação, permissões, configuração, integridade ou descriptografia apresentam mensagens fixas sem chaves, ciphertexts, formulários ou senhas nos logs.
@@ -58,14 +60,15 @@ Se uma chave antiga estiver ausente ou os dados forem adulterados, a revelação
 ## Migração e publicação
 
 - Dependência do cofre existente: `cryptography==50.0.2`.
-- A revisão anterior **`0004_vault_passwords`**, após `0003_access_catalog`, adicionou `password_ciphertext` anulável e `is_corporate` com padrão `1`, além de restrições que impedem senha em registro corporativo.
+- A revisão anterior **`0004_vault_passwords`**, após `0003_access_catalog`, adicionou `password_ciphertext` anulável e `is_corporate` com padrão `1`, inicialmente limitando senhas a registros pessoais.
 - A interface web **Senhas** reaproveita `access_catalog`; não há um segundo cofre. A revisão aditiva **`0008_access_username`** acrescenta `username` vazio para registros existentes, mantendo suas senhas cifradas e metadados. O menu abre a página atual do cofre, com cadastro, edição, busca, cópia de usuário, link do site e exclusão confirmada. Tarefas antigas permanecem na tabela `tasks` e têm página administrativa somente leitura.
+- A revisão **`0009_corporate_passwords`** autoriza o mesmo armazenamento criptografado para acessos corporativos na web. No PostgreSQL, remove somente a restrição `ck_access_catalog_password_scope`; mantém colunas, classificação, IDs, índices, chaves e todas as linhas. Não atualiza ou apaga dados nem recria tabelas. A restrição de classificação válida (`0`/`1`) permanece. O SQLite usado nos testes web reconstrói somente `access_catalog`, copiando todas as linhas; isso não é executado no PostgreSQL nem no SQLite desktop.
 - A URL antiga `/tasks` redireciona para `/vault`. Os POSTs antigos de tarefas respondem com `410 Gone`, sem gravação; a consulta administrativa é `/tasks/archive`. Pesquisa, calendário e lembretes continuam permitindo consultar tarefas antigas conforme as permissões existentes. Nenhuma tarefa é convertida em acesso.
 - Desktop: SQLite passa de esquema 4 para **5**, com backup automático antes da migração aditiva de `username`. Os IDs e demais dados dos acessos existentes são preservados. Backups cifrados continuam exigindo suas chaves originais.
 
-Após backup e revisão do código, envie as alterações ao branch conectado ao Render. Preserve build `pip install -r requirements.txt`, pre-deploy **`flask --app app db upgrade`** e start `gunicorn app:app`. Quem já está em `0007_admin_recovery` executará somente `0008_access_username`; instalações anteriores aplicarão também as revisões pendentes. Confirme `flask --app app db current`. Não execute downgrade automático. Não é necessária variável de ambiente nova: mantenha as mesmas `VAULT_ENABLED`, `VAULT_KEYS` e `VAULT_ACTIVE_KEY_ID`; não troque nem regenere as chaves durante a atualização.
+Após backup e revisão do código, envie as alterações ao branch conectado ao Render. Preserve build `pip install -r requirements.txt`, pre-deploy **`flask --app app db upgrade`** e start `gunicorn app:app`. Quem já está em `0008_access_username` executará somente `0009_corporate_passwords`; instalações anteriores aplicarão também as revisões pendentes. Confirme `flask --app app db current` como `0009_corporate_passwords`. Não execute downgrade automático. Não é necessária variável de ambiente nova: mantenha as mesmas `VAULT_ENABLED`, `VAULT_KEYS` e `VAULT_ACTIVE_KEY_ID`; não troque nem regenere as chaves durante a atualização.
 
-Em homologação, confira login, catálogo corporativo, senha pessoal, máscara inicial, reautenticação, bloqueio de tentativas, edição vazia, recuperação da chave e preservação das outras seções. PostgreSQL/Render reais ainda precisam de homologação; não foram acessados nesta implementação. A geração do novo executável desktop continua pelo build do README.
+Em homologação, confira login, senhas pessoais e corporativas, máscara inicial, reautenticação, bloqueio de tentativas, edição vazia, recuperação da chave e preservação das outras seções. A integração automatizada usa PostgreSQL local descartável; ela não acessa o banco do Render nem substitui a validação autenticada do serviço publicado. A geração do executável desktop continua pelo build do README.
 
 ## Rotação e recuperação
 
@@ -100,4 +103,12 @@ Em homologação, confira login, catálogo corporativo, senha pessoal, máscara 
 
 `tests/test_vault.py` cobre criptografia, adulteração, associação ao registro, política corporativa, perda/rotação de chaves, CRUD, migrações desktop/web, autenticação, CSRF, sessão recente, bloqueio de tentativas e rotação web atômica. `tests/test_vault_admin.py` testa a ferramenta desktop, backup e rollback. `tests/smoke_vault.py` exercita os controles reais CustomTkinter. `tests/smoke_vault_web.py` usa Edge headless e Playwright (dependência opcional em `requirements-test.txt`), com clipboard real, avanço de relógio para testar 30 segundos e viewport de 390 px. A suíte usa somente chaves aleatórias de teste e bancos temporários.
 
-Os testes de cofre validam cadastro, edição, exclusão, pesquisa por usuário, autorização, reautenticação e criptografia; `tests/smoke_vault_web.py` também valida cópia do usuário no navegador. `tests/test_password_migration.py` verifica a atualização de `0007` para `0008`: todas as linhas existentes são preservadas, somente `username` é acrescentado ao esquema, a chave original ainda revela a senha e falhas de autenticação/gravação não expõem os segredos em respostas ou logs. Testes locais com SQLite não substituem a validação do PostgreSQL e do deploy real no Render.
+Os testes de cofre validam cadastro, edição, exclusão, pesquisa por usuário, autorização, reautenticação e criptografia; `tests/smoke_vault_web.py` executa os fluxos pessoais e corporativos, inclusive cópia do usuário e exclusão confirmada sem JavaScript. `tests/test_password_migration.py` verifica as atualizações `0007` → `0008` → `0009`: preservação de todas as linhas, manutenção do ciphertext e da chave original, classificação dos acessos antigos, restrições remanescentes e ausência de segredos em erros ou logs.
+
+`tests/test_password_postgres.py` executa a migração e o fluxo web em PostgreSQL real quando `TEST_POSTGRES_DATABASE_URL` aponta explicitamente para um **banco descartável cujo nome contenha `test`**. O teste cria um esquema exclusivo e o remove ao terminar; nunca use a URL de produção nessa variável. Ele confere preservação dos registros e do ciphertext original, criptografia de novos acessos, edição com senha vazia, persistência em uma segunda instância Flask, pesquisa, exclusão confirmada, permissões e CSRF em HTTPS. Sem essa variável, o teste é omitido. A variável é exclusiva dos testes e **não deve ser adicionada ao serviço de produção no Render**.
+
+Para executar somente essa integração no ambiente de testes já configurado:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest tests.test_password_postgres -v
+```

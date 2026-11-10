@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">ACESSOS</p><h1>Senhas</h1><p class="muted">Acessos organizados · senhas criptografadas e protegidas por reautenticação</p></div></div>
 <div class="flash info">{{ notice }}</div>
-<p class="muted">Acessos corporativos permanecem somente no catálogo. Não inclua senhas nas observações ou na URL.</p>
+<p class="muted">Acessos pessoais e corporativos autorizados. Armazene credenciais no campo Senha; observações e links são visíveis no catálogo.</p>
 {% if can_read_archived_tasks %}<p class="muted"><a class="text-link" href="{{ url_for('web.archived_tasks') }}">Consultar tarefas antigas preservadas</a></p>{% endif %}
 <div class="content-grid">
   <section class="panel">
@@ -21,7 +21,7 @@
             <button class="small-action" type="button" data-vault-action="copy" data-secret-url="{{ url_for('catalog.secret', entry_id=access.id) }}" {{ 'disabled' if not vault_available }}>Copiar senha</button>
           </div>{% endif %}
         </div>
-        <div class="actions"><a class="small-action" href="{{ url_for('catalog.entries', edit=access.id) }}">Editar</a><form method="post" action="{{ url_for('catalog.delete_entry', entry_id=access.id) }}" data-confirm="Excluir este acesso do catálogo?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action danger-text">Excluir</button></form></div>
+        <div class="actions"><a class="small-action" href="{{ url_for('catalog.entries', edit=access.id) }}">Editar</a><a class="small-action danger-text" href="{{ url_for('catalog.delete_entry', entry_id=access.id) }}">Excluir</a></div>
       </article>
     {% else %}<div class="empty-state"><strong>Nenhum acesso encontrado</strong></div>{% endfor %}</div>
   </section>
@@ -30,8 +30,8 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="entry_id" value="{{ entry.id or '' }}">
       <label>Sistema ou serviço<input name="name" maxlength="200" value="{{ entry.name or '' }}" required></label>
       <label>Usuário ou e-mail<input name="username" maxlength="254" value="{{ entry.username or '' }}" autocomplete="off"></label>
-      <label>Tipo de acesso<select name="is_corporate"><option value="1" {{ 'selected' if entry.get('is_corporate', true) }}>Corporativo / somente catálogo</option><option value="0" {{ 'selected' if not entry.get('is_corporate', true) }}>Pessoal · armazenamento autorizado</option></select></label>
-      <label>{{ 'Nova senha (opcional; em branco mantém a atual)' if entry.has_password else 'Senha (opcional, somente acesso pessoal)' }}<input type="password" name="password" autocomplete="new-password" maxlength="4096" {{ 'disabled' if not vault_available }}></label>
+      <label>Tipo de acesso<select name="is_corporate"><option value="1" {{ 'selected' if entry.get('is_corporate', true) }}>Corporativo</option><option value="0" {{ 'selected' if not entry.get('is_corporate', true) }}>Pessoal</option></select></label>
+      <label>{{ 'Nova senha (opcional; em branco mantém a atual)' if entry.has_password else 'Senha (opcional)' }}<input type="password" name="password" autocomplete="new-password" maxlength="4096" {{ 'disabled' if not vault_available }}></label>
       <label>URL do site (sem credenciais ou parâmetros)<input type="url" name="url" maxlength="1000" value="{{ entry.url or '' }}"></label>
       <label>Categoria<input name="category" maxlength="80" value="{{ entry.category or '' }}" list="catalog-categories"></label>
       <datalist id="catalog-categories">{% for category in entries|map(attribute='category')|unique %}<option value="{{ category }}">{% endfor %}</datalist>
@@ -43,9 +43,9 @@
   </section>
 </div>
 <p class="muted" id="vault-feedback" aria-live="polite"></p>
-<dialog class="vault-dialog" id="vault-auth" data-csrf="{{ csrf_token() }}">
+<dialog class="vault-dialog" id="vault-auth" data-csrf="{{ csrf_token() }}" aria-labelledby="vault-auth-title" aria-describedby="vault-auth-description">
   <form id="vault-auth-form" class="form-stack" autocomplete="off">
-    <h2>Confirmar identidade</h2><p class="muted">Informe sua senha para esta operação. A visualização é ocultada após 30 segundos.</p>
+    <h2 id="vault-auth-title">Confirmar identidade</h2><p class="muted" id="vault-auth-description">Informe sua senha para esta operação. A visualização é ocultada após 30 segundos.</p>
     <label>Sua senha<input id="vault-reauth-password" type="password" autocomplete="current-password" maxlength="1024" required></label>
     <p class="muted" id="vault-auth-error" role="alert"></p>
     <div class="form-actions"><button class="button secondary" type="button" id="vault-auth-cancel">Cancelar</button><button class="button primary" type="submit">Confirmar</button></div>

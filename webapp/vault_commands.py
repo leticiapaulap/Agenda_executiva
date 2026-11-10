@@ -20,8 +20,6 @@ def register_commands(app):
                 query = query.with_for_update()
             rows = db.session.scalars(query).all()
             for row in rows:
-                if row.is_corporate:
-                    raise ValueError('Política de catálogo inconsistente.')
                 replacement = cipher.rotate(row.password_ciphertext, row.id)
                 if apply:
                     row.password_ciphertext = replacement

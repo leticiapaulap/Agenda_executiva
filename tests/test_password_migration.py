@@ -133,7 +133,7 @@ class PasswordMigrationTests(unittest.TestCase):
                     'primary_key': inspector.get_pk_constraint(table),
                 } for table in inspector.get_table_names()}
         before = schema()
-        self.upgrade()
+        self.upgrade('0008_access_username')
         after = schema()
         username = after['access_catalog']['columns'].pop()
         self.assertEqual('username', username['name'])
@@ -154,6 +154,45 @@ class PasswordMigrationTests(unittest.TestCase):
                 with self.subTest(statement=statement), self.assertRaises(IntegrityError):
                     with db.session.begin_nested():
                         db.session.execute(text(statement))
+
+    def test_corporate_policy_migration_preserves_all_rows_columns_and_original_key(self):
+        self.upgrade('0008_access_username')
+        with self.app.app_context():
+            db.session.execute(text('''INSERT INTO access_catalog
+                (id,name,url,username,category,notes,updated_at,is_corporate,password_ciphertext)
+                VALUES ('legacy-corporate','Corporativo original','https://example.test',
+                        'corporate@example.test','Trabalho','Nota original',
+                        '2026-11-01T09:00:00+00:00',1,NULL)'''))
+            db.session.commit()
+            before_columns = [(column['name'], str(column['type']), column['nullable'], column['default'])
+                              for column in inspect(db.engine).get_columns('access_catalog')]
+        before = self.snapshot()
+        self.upgrade()
+        self.assertEqual(before, self.snapshot())
+        with self.app.app_context():
+            after_columns = [(column['name'], str(column['type']), column['nullable'], column['default'])
+                             for column in inspect(db.engine).get_columns('access_catalog')]
+            self.assertEqual(before_columns, after_columns)
+            self.assertEqual(['ck_access_catalog_is_corporate'], [
+                check['name'] for check in inspect(db.engine).get_check_constraints('access_catalog')])
+            with self.assertRaises(IntegrityError):
+                with db.session.begin_nested():
+                    db.session.execute(text('UPDATE access_catalog SET is_corporate=2'))
+        client = self.login()
+        response = client.post('/vault', data={
+            'csrf_token': self.csrf(client, '/vault'), 'entry_id': 'legacy-corporate',
+            'name': 'Corporativo original', 'username': 'corporate@example.test',
+            'is_corporate': '1', 'password': VAULT_PASSWORD, 'reauth_password': LOGIN_PASSWORD,
+        })
+        self.assertEqual(302, response.status_code)
+        with self.app.app_context():
+            row = db.session.execute(text(
+                "SELECT is_corporate,password_ciphertext FROM access_catalog WHERE id='legacy-corporate'"
+            )).mappings().one()
+            self.assertEqual(1, row['is_corporate'])
+            self.assertEqual(VAULT_PASSWORD, VaultCipher(self.config).decrypt(
+                row['password_ciphertext'], 'legacy-corporate'))
+        self.assertEqual(self.config['VAULT_KEYS'], self.app.config['VAULT_KEYS'])
 
     def test_authentication_and_storage_failures_do_not_echo_or_log_secrets(self):
         self.upgrade()

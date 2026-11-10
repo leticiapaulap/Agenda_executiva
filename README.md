@@ -27,10 +27,10 @@ No PyCharm, selecione `.venv\Scripts\python.exe` como interpretador e execute `a
 - **Compromissos:** cadastre, edite, pesquise, filtre, conclua e exclua com confirmação. Datas usam `DD/MM/AAAA`; horários usam `HH:MM`, em formato de 24 horas. A indicação de conflito permite revisar o horário ou manter o cadastro.
 - **Tarefas:** organize pendências por prazo e prioridade; conclua ou reabra atividades.
 - **Configurações:** nome do gestor, lembretes, aparência e backup/restauração.
-- **Cofre de Senhas:** catálogo e senhas pessoais opcionais criptografadas, com máscara, olho/cópia e reautenticação. Exige chave exclusiva configurada fora do banco; acessos corporativos continuam somente no catálogo. Veja [configuração, migração e recuperação](docs/COFRE.md).
+- **Cofre de Senhas no desktop:** catálogo e senhas pessoais opcionais criptografadas, com máscara, olho/cópia e reautenticação. Exige chave exclusiva configurada fora do banco; no desktop, acessos corporativos continuam somente no catálogo. A web também aceita senhas corporativas autorizadas. Veja [configuração, migração e recuperação](docs/COFRE.md).
 - **Contas e Vencimentos:** contas únicas ou mensais, filtros, totais, pagamentos, histórico, vencimentos no calendário e comprovantes privados PNG/JPEG.
 
-Consulte [escopo e segurança dos novos módulos](docs/ACESSOS_E_CONTAS.md), incluindo recorrência nos dias 29–31, limitações dos lembretes e backup separado dos comprovantes. O cofre só permite senhas pessoais quando as chaves e a autenticação adicional estão configuradas.
+Consulte [escopo e segurança dos novos módulos](docs/ACESSOS_E_CONTAS.md), incluindo recorrência nos dias 29–31, limitações dos lembretes e backup separado dos comprovantes. O cofre exige chaves e autenticação adicional configuradas. Na web, aceita senhas pessoais e corporativas para usuários autorizados; o desktop mantém senhas somente pessoais.
 
 Cada compromisso exibe um único botão **⋯**, tanto no painel quanto no calendário e na lista filtrada. O menu permite **Editar**, **Concluir/Reabrir**, **Reagendar**, **Duplicar** e **Excluir**. Um duplo clique no compromisso abre os detalhes completos em modo de leitura; um clique simples não altera nem exclui registros. O clique que abre o menu não o fecha: cliques externos fecham, mas os cliques no próprio botão **⋯** e no menu são preservados.
 

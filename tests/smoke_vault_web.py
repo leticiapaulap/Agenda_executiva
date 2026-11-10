@@ -27,7 +27,7 @@ class QuietHandler(WSGIRequestHandler):
         pass
 
 
-def run():
+def run(access_type='1'):
     assert EDGE.is_file(), 'Microsoft Edge is required for this optional test.'
     manager_password = 'Browser-test-manager-password'
     entry_password = 'Browser-test-sensitive-password'
@@ -70,11 +70,11 @@ def run():
                     page.locator('nav').get_by_role('link', name='Senhas', exact=False).click()
                     expect(page.get_by_role('heading', name='Senhas', exact=True)).to_be_visible()
                     form = page.locator('form[action="/vault"][method="post"]')
-                    expect(form.locator('input[name="password"]')).to_be_disabled()
+                    expect(form.locator('input[name="password"]')).to_be_enabled()
                     form.locator('input[name="name"]').fill('Pessoal de teste no navegador')
                     form.locator('input[name="username"]').fill('browser-user@example.test')
                     form.locator('input[name="url"]').fill('https://example.org/login')
-                    form.locator('select[name="is_corporate"]').select_option('0')
+                    form.locator('select[name="is_corporate"]').select_option(access_type)
                     form.locator('input[name="password"]').fill(entry_password)
                     form.locator('input[name="reauth_password"]').fill(manager_password)
                     form.get_by_role('button', name='Salvar acesso').click()
@@ -83,6 +83,18 @@ def run():
                     expect(record.locator('[data-vault-value]')).to_have_text(MASK)
                     assert entry_password not in page.content()
                     assert manager_password not in page.content()
+                    # Exercise the saved site without contacting an external system.
+                    context.route('https://example.org/login', lambda route: route.fulfill(
+                        content_type='text/html', body='<title>Site fictício de teste</title>'))
+                    site = record.get_by_role('link', name='Abrir site', exact=False)
+                    expect(site).to_have_attribute('rel', 'noopener noreferrer')
+                    with page.expect_popup() as popup:
+                        site.click()
+                    popup.value.wait_for_load_state()
+                    assert popup.value.url == 'https://example.org/login'
+                    assert popup.value.evaluate('window.opener === null')
+                    popup.value.close()
+                    page.bring_to_front()
                     record.get_by_role('button', name='Copiar usuário').click()
                     expect(page.locator('#vault-feedback')).to_have_text('Usuário copiado.')
                     assert page.evaluate('navigator.clipboard.readText()') == 'browser-user@example.test'
@@ -142,8 +154,10 @@ def run():
                     page.set_viewport_size({'width': 390, 'height': 844})
                     expect(record).to_be_visible()
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Mobile overflow'
-                    page.once('dialog', lambda dialog: dialog.dismiss())
-                    record.locator('form[data-confirm] button').click()
+                    record.get_by_role('link', name='Excluir', exact=True).click()
+                    expect(page.get_by_role('heading', name='Excluir acesso', exact=True)).to_be_visible()
+                    assert entry_password not in page.content()
+                    page.get_by_role('link', name='Cancelar', exact=True).click()
                     expect(record).to_be_visible()
                     # Disabling the keys leaves metadata and the encrypted record intact.
                     app.config['VAULT_ENABLED'] = False
@@ -154,10 +168,26 @@ def run():
                     assert entry_password not in page.content()
                     app.config['VAULT_ENABLED'] = True
                     page.reload()
-                    record = page.locator('article.record').filter(has_text='Pessoal de teste no navegador')
-                    page.once('dialog', lambda dialog: dialog.accept())
-                    record.locator('form[data-confirm] button').click()
-                    expect(page.get_by_text('Nenhum acesso encontrado')).to_be_visible()
+                    # Confirmation must also be effective with JavaScript disabled.
+                    no_js = browser.new_context(storage_state=context.storage_state(),
+                        java_script_enabled=False, viewport={'width': 390, 'height': 844})
+                    try:
+                        confirmation = no_js.new_page()
+                        confirmation.goto(origin + '/vault')
+                        confirmation.get_by_role('link', name='Excluir', exact=True).click()
+                        expect(confirmation.get_by_role('heading', name='Excluir acesso', exact=True)).to_be_visible()
+                        assert entry_password not in confirmation.content()
+                        with app.app_context():
+                            from webapp.catalog import AccessEntry
+                            assert db.session.query(AccessEntry).count() == 1
+                        confirmation.get_by_role('link', name='Cancelar', exact=True).click()
+                        expect(confirmation.locator('article.record')).to_have_count(1)
+                        confirmation.get_by_role('link', name='Excluir', exact=True).click()
+                        assert confirmation.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Confirmation mobile overflow'
+                        confirmation.get_by_role('button', name='Confirmar exclusão', exact=True).click()
+                        expect(confirmation.get_by_text('Nenhum acesso encontrado')).to_be_visible()
+                    finally:
+                        no_js.close()
                     with app.app_context():
                         from webapp.catalog import AccessEntry
                         assert db.session.query(AccessEntry).count() == 0
@@ -174,8 +204,9 @@ def run():
             with app.app_context():
                 db.session.remove()
                 db.engine.dispose()
-    print('Browser vault smoke passed: authentication, masked HTML, reveal/hide/copy, preservation, disabled keys and mobile layout.')
+    print(f'Browser vault smoke passed (corporate={access_type}): authentication, masked HTML, reveal/hide/copy, preservation, disabled keys, mobile layout and deletion confirmation without JavaScript.')
 
 
 if __name__ == '__main__':
-    run()
+    run('1')
+    run('0')

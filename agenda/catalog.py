@@ -53,9 +53,12 @@ def _public(row):
 
 
 class AccessCatalog:
-    def __init__(self, repository, cipher=None):
+    def __init__(self, repository, cipher=None, *, allow_corporate_passwords=False):
         self.repository = repository
         self.cipher = cipher if cipher is not None else VaultCipher()
+        # The web explicitly enables corporate credentials. Desktop storage keeps
+        # its existing policy and database constraints.
+        self.allow_corporate_passwords = allow_corporate_passwords
 
     def list_entries(self, search=''):
         needle = str(search).strip().casefold()
@@ -110,7 +113,8 @@ class AccessCatalog:
         clear = _flag(data.get('clear_password', False))
         if clear and password:
             raise ValueError('Selecione remover a senha ou informe uma nova senha.')
-        if corporate and (password or (existing and existing['has_password'] and not clear)):
+        if (corporate and not self.allow_corporate_passwords
+                and (password or (existing and existing['has_password'] and not clear))):
             raise ValueError('Acessos corporativos permitem somente catálogo, sem armazenar senhas.')
         values['is_corporate'] = int(corporate)
         record_id = entry_id or str(uuid4())
@@ -129,13 +133,15 @@ class AccessCatalog:
 
     def reveal_password(self, entry_id):
         entry = self.get_entry(entry_id)
-        if not entry or entry['is_corporate'] or not entry['has_password']:
+        if (not entry or not entry['has_password']
+                or (entry['is_corporate'] and not self.allow_corporate_passwords)):
             raise VaultError(ERROR_MESSAGE)
         return self.cipher.decrypt(self.repository.get_secret(entry_id), entry_id)
 
     def rotate_password(self, entry_id):
         entry = self.get_entry(entry_id)
-        if not entry or entry['is_corporate'] or not entry['has_password']:
+        if (not entry or not entry['has_password']
+                or (entry['is_corporate'] and not self.allow_corporate_passwords)):
             raise VaultError(ERROR_MESSAGE)
         previous = self.repository.get_secret(entry_id)
         encrypted = self.cipher.rotate(previous, entry_id)

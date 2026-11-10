@@ -173,7 +173,8 @@ class WebCatalogSecurityTests(unittest.TestCase):
             self.login(client)
             self.assertIn(b'Atualizado', client.get('/vault').data)
             self.assertEqual(400, client.post(f'/vault/{entry_id}/delete').status_code)
-            client.post(f'/vault/{entry_id}/delete', data={'csrf_token': self.token('/vault', client)})
+            client.post(f'/vault/{entry_id}/delete', data={
+                'csrf_token': self.token('/vault', client), 'confirm': '1'})
             with restarted.app_context():
                 self.assertEqual(0, db.session.query(AccessEntry).count())
         finally:
@@ -200,9 +201,12 @@ class AdditiveWebMigrationTests(unittest.TestCase):
             self.assertIn('0003_access_catalog', result.output)
             self.assertIn('0008_access_username', result.output)
             self.assertIn('ADD COLUMN username', result.output)
+            self.assertIn('0009_corporate_passwords', result.output)
+            self.assertIn('DROP CONSTRAINT ck_access_catalog_password_scope', result.output)
             self.assertIn('CREATE TABLE users', result.output)
             self.assertIn('ALTER TABLE events', result.output)
             self.assertNotIn('DROP TABLE', result.output)
+            self.assertNotIn('DELETE FROM', result.output)
         finally:
             with app.app_context():
                 db.session.remove()

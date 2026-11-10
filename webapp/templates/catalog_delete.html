@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}Excluir acesso{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">SENHAS</p><h1>Excluir acesso</h1></div></div>
+<section class="panel form-panel">
+  <h2>Deseja excluir o acesso “{{ entry.name }}”?</h2>
+  <p class="muted">{% if entry.has_password %}O cadastro e sua senha armazenada serão excluídos{% else %}O cadastro será excluído{% endif %} após a confirmação.</p>
+  <form method="post" action="{{ url_for('catalog.delete_entry', entry_id=entry.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-actions">
+      <a class="button secondary" href="{{ url_for('catalog.entries') }}">Cancelar</a>
+      <button class="button primary" type="submit" name="confirm" value="1">Confirmar exclusão</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
